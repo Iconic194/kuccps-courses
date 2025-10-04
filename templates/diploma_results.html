@@ -1,0 +1,21 @@
+<!-- diploma_results.html -->
+<div class="container">
+    <h2>Your Qualified Diploma Courses</h2>
+
+    {% if courses_by_collection %}
+    <div class="collections-list">
+        {% for collection_name, courses in courses_by_collection.items() %}
+        <div class="collection-card">
+            <h3>{{ collection_name|replace('_', ' ') }}</h3>
+            <p>{{ courses|length }} courses available</p>
+            <a href="{{ url_for('show_collection_courses', flow='diploma', collection_name=collection_name) }}"
+                class="btn btn-primary">
+                View Courses
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p>No qualifying courses found for your grades.</p>
+    {% endif %}
+</div>
