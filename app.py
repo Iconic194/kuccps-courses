@@ -676,7 +676,7 @@ def initiate_stk_push(phone, amount=1):
         
         index_number = session.get('index_number', 'KUCCPS')
         
-        base_url = 'https://kuccps.onrender.com'
+        base_url = 'https://kuccps-courses.onrender.com'
         payload = {
             "BusinessShortCode": business_short_code,
             "Password": password,
