@@ -1,65 +1,101 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Processing Payment</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
-    <style>
-        .wait-message {
-            margin: 100px auto;
-            max-width: 400px;
-            padding: 40px;
-            background: #fff;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .wait-message h2 {
-            color: #007bff;
-        }
-        .spinner {
-            margin: 30px auto 10px auto;
-            border: 6px solid #f3f3f3;
-            border-top: 6px solid #007bff;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
-</head>
-<body>
-    <div class="wait-message">
-        <div class="spinner"></div>
-        <h2>Please wait for your results</h2>
-        <p>Kindly do not refresh this page.<br>Your payment is being processed.</p>
-        {% if transaction_ref %}
-        <div style="margin-top:20px; color:#333;">
-            <strong>Transaction Reference:</strong><br>
-            <span style="word-break:break-all;">{{ transaction_ref }}</span>
+{% extends "base.html" %}
+
+{% block title %}Payment Processing{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-warning">
+                    <h4 class="mb-0"><i class="fas fa-sync-alt fa-spin"></i> Payment Processing</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <h5>Payment Status: <span id="statusText">Waiting for confirmation...</span></h5>
+                        <p class="mb-2">Please check your phone and enter your M-Pesa PIN to complete the payment.</p>
+                        {% if transaction_ref %}
+                        <p class="mb-0"><strong>Transaction ID:</strong> <code>{{ transaction_ref }}</code></p>
+                        {% endif %}
+                    </div>
+
+                    <div class="text-center my-4">
+                        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+                            <span class="visually-hidden">Processing payment...</span>
+                        </div>
+                        <p class="mt-3" id="waitingText">Waiting for payment confirmation...</p>
+                    </div>
+
+                    <!-- Success Message (hidden initially) -->
+                    <div id="successMessage" class="alert alert-success" style="display: none;">
+                        <h5><i class="fas fa-check-circle"></i> Payment Confirmed!</h5>
+                        <p>Redirecting to your results...</p>
+                    </div>
+
+                    <div class="text-center mt-4">
+                        <a href="{{ url_for('payment', flow=flow) }}" class="btn btn-secondary">Retry Payment</a>
+                        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Return Home</a>
+                    </div>
+                </div>
+            </div>
         </div>
-        {% endif %}
     </div>
-    <script>
-        // Poll the server every 3 seconds for payment status
-        function checkPaymentStatus() {
-            fetch(`/payment-status/{{ flow }}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.paid) {
-                        window.location.href = '/results/{{ flow }}';
-                    } else {
+</div>
+
+<script>
+    // Auto-check payment status every 3 seconds
+    let checkCount = 0;
+    const maxChecks = 60; // 3 minutes maximum
+
+    function checkPaymentStatus() {
+        checkCount++;
+
+        fetch("{{ check_status_url }}")
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Payment status check:', data);
+
+                if (data.paid) {
+                    // Payment confirmed!
+                    document.getElementById('statusText').textContent = 'Payment Confirmed!';
+                    document.getElementById('statusText').className = 'text-success fw-bold';
+                    document.getElementById('waitingText').style.display = 'none';
+                    document.getElementById('successMessage').style.display = 'block';
+
+                    // Redirect to results page
+                    console.log('Redirecting to:', data.redirect_url);
+                    setTimeout(() => {
+                        window.location.href = data.redirect_url || "/results/{{ flow }}";
+                    }, 2000);
+                } else {
+                    // Continue checking
+                    if (checkCount < maxChecks) {
                         setTimeout(checkPaymentStatus, 3000);
+                    } else {
+                        // Timeout reached
+                        document.getElementById('statusText').textContent = 'Payment check timeout';
+                        document.getElementById('statusText').className = 'text-danger';
+                        document.getElementById('waitingText').textContent = 'Please refresh the page or contact support';
                     }
-                })
-                .catch(() => setTimeout(checkPaymentStatus, 3000));
-        }
+                }
+            })
+            .catch(error => {
+                console.error('Error checking payment status:', error);
+                if (checkCount < maxChecks) {
+                    setTimeout(checkPaymentStatus, 3000);
+                }
+            });
+    }
+
+    // Start checking when page loads
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('Starting payment status checks...');
         checkPaymentStatus();
-    </script>
-</body>
-</html>
+    });
+</script>
+{% endblock %}
