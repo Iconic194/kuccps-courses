@@ -17,6 +17,36 @@
             overflow-x: hidden;
         }
 
+        /* Verify Payment Modal Styles */
+#verifyPreview .card {
+    border: 2px solid #198754;
+}
+
+#verifyPreview .badge {
+    font-size: 0.8em;
+    padding: 0.5em 0.75em;
+}
+
+#verifyLoading .spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+.form-text {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .modal-dialog.modal-lg {
+        margin: 1rem;
+    }
+    
+    #courseLevels {
+        justify-content: center;
+    }
+}
         .main-wrapper {
             display: flex;
             flex-direction: column;
@@ -169,47 +199,86 @@
             </div>
         </div>
 
-    <!-- Verify Payment Modal -->
-    <div class="modal fade" id="verifyPaymentModal" tabindex="-1" aria-labelledby="verifyPaymentLabel" role="dialog" aria-modal="true">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="verifyPaymentLabel">Verify Your Payment</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <form id="verifyPaymentForm">
-                            <div class="mb-3">
-                                <label for="mpesa_receipt_raw" class="form-label">Mpesa receipt or full MPesa SMS (paste the message)</label>
-                                <input type="text" class="form-control" id="mpesa_receipt_raw" name="mpesa_receipt_raw" placeholder="Paste full MPesa SMS or receipt here" required>
-                                <div class="form-text">If you paste the full MPesa SMS, we'll extract the 10-character transaction code automatically.</div>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Extracted receipt</label>
-                                <input type="text" class="form-control" id="mpesa_receipt_parsed" name="mpesa_receipt" readonly>
-                            </div>
-                            <div class="mb-3">
-                                <label for="index_number_verify" class="form-label">KCSE Index Number (format: 12345678902/2025)</label>
-                                <input type="text" class="form-control" id="index_number_verify" name="index_number" placeholder="12345678902/2025" required>
-                                <div class="form-text">Enter your 11-digit index, slash, and 4-digit year (e.g. 12345678902/2025).</div>
-                            </div>
-                            <div id="verifyError" class="alert alert-danger" role="alert" style="display:none;"></div>
+<!-- Verify Payment Modal -->
+<div class="modal fade" id="verifyPaymentModal" tabindex="-1" aria-labelledby="verifyPaymentLabel" role="dialog"
+    aria-modal="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="verifyPaymentLabel">Verify Your Payment & View Courses</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="fa fa-info-circle me-2"></i>
+                    Enter your M-Pesa receipt number and KCSE index to view your qualified courses.
+                </div>
 
-                            <!-- Preview area shown after server returns match info -->
-                            <div id="verifyPreview" style="display:none; margin-top:1rem;">
-                                <div class="alert alert-info" id="previewInfo"></div>
-                                <div class="d-flex justify-content-end">
-                                    <button type="button" id="showResultsBtn" class="btn btn-success me-2">Show Results</button>
-                                    <button type="button" id="cancelPreviewBtn" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="verifyPaymentForm">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="mpesa_receipt" class="form-label">M-Pesa Receipt Number *</label>
+                                <input type="text" class="form-control" id="mpesa_receipt" name="mpesa_receipt"
+                                    placeholder="e.g., RJ89A5LBQ2" required maxlength="10">
+                                <div class="form-text">10-character receipt from M-Pesa message</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="index_number_verify" class="form-label">KCSE Index Number *</label>
+                                <input type="text" class="form-control" id="index_number_verify" name="index_number"
+                                    placeholder="12345678902/2025" required pattern="\d{11}/\d{4}">
+                                <div class="form-text">Format: 12345678902/2025</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="verifyError" class="alert alert-danger" role="alert" style="display:none;"></div>
+
+                    <!-- Loading spinner -->
+                    <div id="verifyLoading" class="text-center" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Verifying your payment...</p>
+                    </div>
+
+                    <!-- Results Preview -->
+                    <div id="verifyPreview" style="display: none;">
+                        <div class="card mt-3">
+                            <div class="card-header bg-success text-white">
+                                <h6 class="mb-0">
+                                    <i class="fa fa-check-circle me-2"></i>Payment Verified Successfully
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="previewInfo"></div>
+                                <div class="mt-3">
+                                    <h6>Available Course Levels:</h6>
+                                    <div id="courseLevels" class="d-flex flex-wrap gap-2 mt-2"></div>
+                                </div>
+                                <div class="d-flex justify-content-end mt-3">
+                                    <button type="button" id="showResultsBtn" class="btn btn-success me-2">
+                                        <i class="fa fa-graduation-cap me-1"></i>View All Courses
+                                    </button>
+                                    <button type="button" id="cancelPreviewBtn" class="btn btn-secondary"
+                                        data-bs-dismiss="modal">Close</button>
                                 </div>
                             </div>
-
-                            <button type="submit" class="btn btn-primary" id="verifySubmitBtn">Verify</button>
-                        </form>
+                        </div>
                     </div>
-                </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary" id="verifySubmitBtn">
+                            <i class="fa fa-search me-1"></i>Verify & View Courses
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
+    </div>
+</div>
 
         {% block scripts %}{% endblock %}
         <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
@@ -238,69 +307,33 @@
                 }
             }
 
-            // Initialize sidebar accessibility
-            document.addEventListener('DOMContentLoaded', function() {
-                const sidebar = document.getElementById('sidebarMenu');
-                const overlay = document.getElementById('overlay');
-                
-                // Set initial accessibility attributes
-                overlay.setAttribute('role', 'button');
-                overlay.setAttribute('aria-label', 'Close navigation menu');
-                // Initially hide sidebar links from keyboard users
-                Array.from(sidebar.querySelectorAll('a')).forEach(a => a.setAttribute('tabindex', '-1'));
-                // Ensure modals do not have aria-hidden set while containing focusable elements.
-                // Use inert when modals are hidden so their children are not focusable (supported in modern browsers).
-                const modals = document.querySelectorAll('.modal');
-                modals.forEach(modal => {
-                    // remove any aria-hidden that Bootstrap may add later
-                    modal.removeAttribute('aria-hidden');
-                    // if hidden initially, set inert to keep children unfocusable
-                    if (!modal.classList.contains('show')) {
-                        try { modal.setAttribute('inert', ''); } catch (e) { /* inert unsupported, we still remove aria-hidden */ }
-                    }
-                    // Toggle inert on show/hide events
-                    modal.addEventListener('show.bs.modal', function () {
-                        try { this.removeAttribute('inert'); } catch (e) {}
-                        this.removeAttribute('aria-hidden');
-                    });
-                    modal.addEventListener('hidden.bs.modal', function () {
-                        try { this.setAttribute('inert', ''); } catch (e) {}
-                        // keep aria-hidden removed to avoid axe rule; inert prevents focus
-                        this.removeAttribute('aria-hidden');
-                    });
-                });
-            });
-
-            // Verify payment form submission
+           // Verify payment form submission
             document.addEventListener('DOMContentLoaded', function () {
                 const form = document.getElementById('verifyPaymentForm');
                 const errorBox = document.getElementById('verifyError');
-                const rawInput = document.getElementById('mpesa_receipt_raw');
-                const parsedInput = document.getElementById('mpesa_receipt_parsed');
-
-                function extractReceipt(text) {
-                    if (!text) return '';
-                    const m = text.match(/[A-Za-z0-9]{10}/);
-                    if (m) return m[0].toUpperCase();
-                    const cleaned = text.replace(/[^A-Za-z0-9]/g, '');
-                    return cleaned.substring(0, 10).toUpperCase();
-                }
-
-                // Live update parsed field when user types or pastes
-                if (rawInput && parsedInput) {
-                    rawInput.addEventListener('input', function () {
-                        parsedInput.value = extractReceipt(rawInput.value);
-                    });
-                }
+                const loadingDiv = document.getElementById('verifyLoading');
+                const previewDiv = document.getElementById('verifyPreview');
 
                 if (!form) return;
 
                 form.addEventListener('submit', async function (e) {
                     e.preventDefault();
                     errorBox.style.display = 'none';
+                    previewDiv.style.display = 'none';
 
+                    // Get form values
+                    const mpesaReceipt = document.getElementById('mpesa_receipt').value.trim().toUpperCase();
                     const indexVal = document.getElementById('index_number_verify').value.trim();
-                    // Validate KCSE index format: 11 digits, slash, 4 digits, e.g. 12345678902/2025
+
+                    // Validate M-Pesa receipt (10 alphanumeric characters)
+                    const receiptRegex = /^[A-Z0-9]{10}$/;
+                    if (!receiptRegex.test(mpesaReceipt)) {
+                        errorBox.textContent = 'Please enter a valid 10-character M-Pesa receipt number.';
+                        errorBox.style.display = 'block';
+                        return;
+                    }
+
+                    // Validate KCSE index format
                     const indexRe = /^\d{11}\/\d{4}$/;
                     if (!indexRe.test(indexVal)) {
                         errorBox.textContent = 'Index number must be in the format 12345678902/2025 (11 digits, slash, 4 digits).';
@@ -308,58 +341,152 @@
                         return;
                     }
 
-                    // Build payload using parsed receipt if available
-                    let payload = new FormData();
-                    if (parsedInput && parsedInput.value) {
-                        payload.append('mpesa_receipt', parsedInput.value);
-                    } else {
-                        // fallback to raw
-                        payload.append('mpesa_receipt', rawInput.value.trim());
-                    }
-                    payload.append('index_number', indexVal);
-
-                    // disable submit while verifying
+                    // Show loading spinner
                     const submitBtn = document.getElementById('verifySubmitBtn');
                     submitBtn.disabled = true;
+                    loadingDiv.style.display = 'block';
 
                     try {
-                        const resp = await fetch('/verify-payment', { method: 'POST', body: payload });
+                        // Build payload
+                        let payload = new FormData();
+                        payload.append('mpesa_receipt', mpesaReceipt);
+                        payload.append('index_number', indexVal);
+
+                        const resp = await fetch('/verify-payment', {
+                            method: 'POST',
+                            body: payload
+                        });
+
                         const json = await resp.json().catch(() => null);
+
+                        // Hide loading spinner
+                        loadingDiv.style.display = 'none';
+                        submitBtn.disabled = false;
 
                         if (!resp.ok || !json) {
                             errorBox.textContent = (json && json.error) ? json.error : 'Server error occurred. Please try later.';
                             errorBox.style.display = 'block';
-                            submitBtn.disabled = false;
                             return;
                         }
 
-                        if (json.success) {
-                            // show preview with courses_count and payment status
-                            const preview = document.getElementById('verifyPreview');
+                       if (json.success) {
+                            // Show preview with courses information
                             const previewInfo = document.getElementById('previewInfo');
-                            const confirmedText = json.payment_confirmed ? 'Payment confirmed' : 'Payment not confirmed yet (showing stored courses)';
-                            previewInfo.innerHTML = `<strong>${confirmedText}</strong><br/>Found <strong>${json.courses_count}</strong> stored course(s) for index <strong>${indexVal}</strong>.`;
-                            preview.style.display = 'block';
+                            const courseLevels = document.getElementById('courseLevels');
 
+                            // Build preview info
+                            let infoHTML = `
+        <div class="row">
+            <div class="col-md-6">
+                <strong>Index Number:</strong> ${indexVal}<br>
+                <strong>M-Pesa Receipt:</strong> ${mpesaReceipt}<br>
+                <strong>Payment Status:</strong> 
+                <span class="badge bg-success">Confirmed</span>
+            </div>
+            <div class="col-md-6">
+                <strong>Total Courses Found:</strong> ${json.courses_count || 0}<br>
+                <strong>Course Levels:</strong> ${json.levels ? json.levels.length : 0}
+            </div>
+        </div>
+    `;
+
+                            previewInfo.innerHTML = infoHTML;
+
+                            // Display available course levels with counts
+                            if (json.levels && json.levels.length > 0) {
+                                let levelsHTML = '';
+                                json.levels.forEach(level => {
+                                    const count = json.level_details && json.level_details[level] ? json.level_details[level].count : 0;
+                                    levelsHTML += `
+                <span class="badge bg-primary me-1 mb-1">
+                    ${level.toUpperCase()} (${count})
+                </span>
+            `;
+                                });
+                                courseLevels.innerHTML = levelsHTML;
+                            } else {
+                                courseLevels.innerHTML = '<span class="text-muted">No course levels found</span>';
+                            }
+
+                            // Set up the show results button
                             const showBtn = document.getElementById('showResultsBtn');
                             showBtn.onclick = function () {
-                                window.location.href = json.redirect_url;
+                                if (json.redirect_url) {
+                                    window.location.href = json.redirect_url;
+                                } else {
+                                    // Fallback to dashboard
+                                    const params = new URLSearchParams({
+                                        index: indexVal,
+                                        receipt: mpesaReceipt
+                                    });
+                                    window.location.href = `/verified-dashboard?${params.toString()}`;
+                                }
                             };
 
-                            // Re-enable submit in case user cancels
-                            submitBtn.disabled = false;
+                            // Show the preview section
+                            previewDiv.style.display = 'block';
+
+                            // Scroll to preview
+                            previewDiv.scrollIntoView({ behavior: 'smooth' });
                         } else {
-                            errorBox.textContent = json.error || 'Verification failed';
+                            errorBox.textContent = json.error || 'Payment verification failed. Please check your receipt and index number.';
                             errorBox.style.display = 'block';
-                            submitBtn.disabled = false;
                         }
 
                     } catch (err) {
-                        errorBox.textContent = 'Server error occurred. Please try later.';
-                        errorBox.style.display = 'block';
+                        loadingDiv.style.display = 'none';
                         submitBtn.disabled = false;
+                        errorBox.textContent = 'Network error occurred. Please check your internet connection and try again.';
+                        errorBox.style.display = 'block';
+                        console.error('Verification error:', err);
                     }
                 });
+
+                // Reset form when modal is closed
+                const verifyModal = document.getElementById('verifyPaymentModal');
+                if (verifyModal) {
+                    verifyModal.addEventListener('hidden.bs.modal', function () {
+                        form.reset();
+                        errorBox.style.display = 'none';
+                        previewDiv.style.display = 'none';
+                        loadingDiv.style.display = 'none';
+                        const submitBtn = document.getElementById('verifySubmitBtn');
+                        if (submitBtn) submitBtn.disabled = false;
+                    });
+                }
+
+                // Auto-format M-Pesa receipt input
+                const mpesaInput = document.getElementById('mpesa_receipt');
+                if (mpesaInput) {
+                    mpesaInput.addEventListener('input', function (e) {
+                        // Convert to uppercase and remove spaces
+                        this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+                        // Limit to 10 characters
+                        if (this.value.length > 10) {
+                            this.value = this.value.substring(0, 10);
+                        }
+                    });
+                }
+
+                // Auto-format index number input
+                const indexInput = document.getElementById('index_number_verify');
+                if (indexInput) {
+                    indexInput.addEventListener('input', function (e) {
+                        // Remove any non-digit characters except slash
+                        this.value = this.value.replace(/[^\d/]/g, '');
+
+                        // Auto-insert slash after 11 digits
+                        if (this.value.length === 11 && !this.value.includes('/')) {
+                            this.value = this.value + '/';
+                        }
+
+                        // Limit total length
+                        if (this.value.length > 16) {
+                            this.value = this.value.substring(0, 16);
+                        }
+                    });
+                }
             });
         </script>
     </div>

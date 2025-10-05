@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from bson import ObjectId
 import requests
 from requests.auth import HTTPBasicAuth
+import json
 
 # --- Configuration and Setup ---
 load_dotenv()
@@ -1107,6 +1108,255 @@ def show_collection_courses(flow, collection_name):
                          courses=collection_courses,
                          email=email,
                          index_number=index_number)
+@app.route('/verify-payment', methods=['POST'])
+def verify_payment():
+    """Verify payment and return course information for all levels"""
+    try:
+        mpesa_receipt = request.form.get('mpesa_receipt', '').strip().upper()
+        index_number = request.form.get('index_number', '').strip()
+        
+        if not mpesa_receipt or not index_number:
+            return jsonify({'success': False, 'error': 'M-Pesa receipt and index number are required'})
+        
+        # Validate M-Pesa receipt format
+        if len(mpesa_receipt) != 10 or not mpesa_receipt.isalnum():
+            return jsonify({'success': False, 'error': 'Invalid M-Pesa receipt format. Must be 10 alphanumeric characters.'})
+        
+        # Validate index number format
+        import re
+        if not re.match(r'^\d{11}/\d{4}$', index_number):
+            return jsonify({'success': False, 'error': 'Invalid index number format. Must be 11 digits, slash, 4 digits (e.g., 12345678901/2024)'})
+        
+        print(f"🔍 Verifying payment for index: {index_number}, receipt: {mpesa_receipt}")
+        
+        # SIMPLE CHECK: Find any confirmed payment for this index number and receipt
+        payment_found = False
+        
+        if database_connected:
+            payment_data = user_payments_collection.find_one({
+                'index_number': index_number,
+                'mpesa_receipt': mpesa_receipt,
+                'payment_confirmed': True
+            })
+            payment_found = payment_data is not None
+        else:
+            # Session fallback
+            for key in session:
+                if isinstance(session.get(key), dict):
+                    payment_data = session[key]
+                    if (payment_data.get('index_number') == index_number and 
+                        payment_data.get('mpesa_receipt') == mpesa_receipt and
+                        payment_data.get('payment_confirmed')):
+                        payment_found = True
+                        break
+        
+        if not payment_found:
+            print(f"❌ No confirmed payment found for index: {index_number}, receipt: {mpesa_receipt}")
+            return jsonify({'success': False, 'error': 'No confirmed payment found with these details. Please ensure payment was successful and try again.'})
+        
+        print(f"✅ Payment confirmed for index: {index_number}")
+        
+        # Get ALL courses for this user across ALL levels
+        user_courses = {}
+        course_levels = []
+        total_courses = 0
+        
+        if database_connected:
+            levels = ['degree', 'diploma', 'certificate', 'artisan', 'kmtc']
+            for level in levels:
+                courses_data = user_courses_collection.find_one({
+                    'index_number': index_number,
+                    'level': level
+                })
+                if courses_data and courses_data.get('courses'):
+                    # Simple course count - we don't need the actual course data here
+                    course_count = len(courses_data['courses'])
+                    user_courses[level] = {
+                        'count': course_count
+                    }
+                    course_levels.append(level)
+                    total_courses += course_count
+                    print(f"📚 Found {course_count} {level} courses")
+        
+        if total_courses == 0:
+            return jsonify({'success': False, 'error': 'No course results found for your payment. Please ensure you completed the qualification process.'})
+        
+        print(f"🎓 Total courses found: {total_courses} across {len(course_levels)} levels")
+        
+        # Return simple success response with redirect URL
+        return jsonify({
+            'success': True,
+            'payment_confirmed': True,
+            'courses_count': total_courses,
+            'levels': course_levels,
+            'level_details': user_courses,
+            'redirect_url': url_for('verified_results_dashboard', index=index_number, receipt=mpesa_receipt)
+        })
+        
+    except Exception as e:
+        print(f"❌ Error verifying payment: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': 'Internal server error. Please try again later.'})
+@app.route('/verified-dashboard')
+def verified_results_dashboard():
+    """Dashboard showing all available course levels for verified payment"""
+    index_number = request.args.get('index')
+    receipt = request.args.get('receipt')
+    
+    if not index_number or not receipt:
+        flash("Invalid verification parameters", "error")
+        return redirect(url_for('index'))
+    
+    print(f"📊 Loading dashboard for index: {index_number}")
+    
+    # Get all courses for this user across all levels
+    user_courses = {}
+    total_courses = 0
+    
+    if database_connected:
+        levels = ['degree', 'diploma', 'certificate', 'artisan', 'kmtc']
+        for level in levels:
+            courses_data = user_courses_collection.find_one({
+                'index_number': index_number,
+                'level': level
+            })
+            if courses_data and courses_data.get('courses'):
+                course_count = len(courses_data['courses'])
+                user_courses[level] = {
+                    'courses': courses_data['courses'],
+                    'count': course_count
+                }
+                total_courses += course_count
+                print(f"📚 Loaded {course_count} {level} courses")
+    
+    if not user_courses:
+        flash("No course results found for your payment details", "error")
+        return redirect(url_for('index'))
+    
+    print(f"🎓 Dashboard ready with {total_courses} total courses")
+    
+    # Store verification in session for individual level access
+    session['verified_payment'] = True
+    session['verified_index'] = index_number
+    session['verified_receipt'] = receipt
+    
+    return render_template('verified_dashboard.html',
+                         user_courses=user_courses,
+                         index_number=index_number,
+                         receipt=receipt,
+                         total_courses=total_courses)
+@app.route('/verified-results/<level>')
+def show_verified_level_results(level):
+    """Show verified results for a specific course level"""
+    index_number = request.args.get('index')
+    receipt = request.args.get('receipt')
+    
+    if level not in ['degree', 'diploma', 'certificate', 'artisan', 'kmtc']:
+        flash("Invalid course level", "error")
+        return redirect(url_for('index'))
+    
+    if not index_number or not receipt:
+        flash("Invalid verification parameters", "error")
+        return redirect(url_for('index'))
+    
+    print(f"🎓 Loading {level} courses for index: {index_number}")
+    
+    # Get courses for the specific level
+    courses_data = None
+    if database_connected:
+        courses_data = user_courses_collection.find_one({
+            'index_number': index_number,
+            'level': level
+        })
+    
+    if not courses_data or not courses_data.get('courses'):
+        flash(f"No {level} course results found for your payment details", "error")
+        return redirect(url_for('verified_results_dashboard', index=index_number, receipt=receipt))
+    
+    # Render directly instead of redirecting
+    qualifying_courses = courses_data['courses']
+    
+    # Group courses by collection
+    courses_by_collection = {}
+    for course in qualifying_courses:
+        if level == 'degree':
+            collection_name = course.get('cluster', 'Other')
+        else:
+            collection_name = course.get('collection', 'Other')
+        
+        if collection_name not in courses_by_collection:
+            courses_by_collection[collection_name] = []
+        courses_by_collection[collection_name].append(course)
+    
+    print(f"✅ Loaded {len(qualifying_courses)} {level} courses")
+    
+    return render_template('collection_results.html', 
+                         courses=qualifying_courses,
+                         courses_by_collection=courses_by_collection,
+                         user_grades={}, 
+                         user_mean_grade=None,
+                         user_cluster_points={},
+                         subjects=SUBJECTS, 
+                         email=f"verified_{index_number}@temp.com", 
+                         index_number=index_number,
+                         flow=level)
+@app.route('/debug/verify-test')
+def debug_verify_test():
+    """Test endpoint to verify the verification flow"""
+    if database_connected:
+        # Check recent payments
+        recent_payments = list(user_payments_collection.find().sort('created_at', -1).limit(5))
+        recent_courses = list(user_courses_collection.find().sort('created_at', -1).limit(5))
+        
+        return jsonify({
+            'recent_payments': [
+                {
+                    'index_number': p.get('index_number'),
+                    'mpesa_receipt': p.get('mpesa_receipt'),
+                    'transaction_ref': p.get('transaction_ref'),
+                    'payment_confirmed': p.get('payment_confirmed'),
+                    'level': p.get('level')
+                } for p in recent_payments
+            ],
+            'recent_courses': [
+                {
+                    'index_number': c.get('index_number'),
+                    'level': c.get('level'),
+                    'course_count': len(c.get('courses', [])),
+                    'has_courses': bool(c.get('courses'))
+                } for c in recent_courses
+            ]
+        })
+    else:
+        return jsonify({'error': 'Database not connected'})
+
+@app.route('/verified-results')
+def show_verified_results():
+    """Show verified results page"""
+    index_number = request.args.get('index')
+    receipt = request.args.get('receipt')
+    
+    if not index_number or not receipt:
+        flash("Invalid verification parameters", "error")
+        return redirect(url_for('index'))
+    
+    # Get all courses for this user
+    user_courses = {}
+    if database_connected:
+        levels = ['degree', 'diploma', 'certificate', 'artisan', 'kmtc']
+        for level in levels:
+            courses_data = user_courses_collection.find_one({
+                'index_number': index_number,
+                'level': level
+            })
+            if courses_data and courses_data.get('courses'):
+                user_courses[level] = courses_data['courses']
+    
+    return render_template('verified_results.html', 
+                         user_courses=user_courses,
+                         index_number=index_number,
+                         receipt=receipt)
 
 # --- Debug and Testing Routes ---
 @app.route('/debug/database')
