@@ -63,7 +63,7 @@ MPESA_PASSKEY = "a3d842c161dc6617ac99f9e6d250fc1583584e29c1cae2123d3d9f4db94790d
 MPESA_SHORTCODE = "4185095"
 
 # --- Database Connections ---
-MONGODB_URI = "mongodb+srv://iconichean:1Loye8PM3YwlV5h4@cluster0.meufk73.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+MONGODB_URI = "mongodb+srv://iconichean:1Loye8PM3YwlV5h4@cluster0.meufk73.mongodb.net/?retryWrites=true&w=majority"
 
 # Initialize database variables
 db = None
@@ -88,14 +88,16 @@ def initialize_database():
             
             client = MongoClient(
                 MONGODB_URI,
-                serverSelectionTimeoutMS=15000,
+                serverSelectionTimeoutMS=10000,
                 connectTimeoutMS=30000,
                 socketTimeoutMS=30000,
                 retryWrites=True,
-                retryReads=True
+                retryReads=True,
+                maxPoolSize=50
             )
             
-            client.admin.command('ping', socketTimeoutMS=15000)
+            # Test the connection
+            client.admin.command('ping')
             print("✅ Successfully connected to MongoDB")
             
             # Initialize databases
@@ -106,57 +108,34 @@ def initialize_database():
             db_certificate = client['certificate']
             db_artisan = client['artisan']
             
-            # Initialize collections - user_courses exists, user_payments will be created automatically
-            user_courses_collection = db_user_data['user_courses']  # This exists
-            user_payments_collection = db_user_data['user_payments']  # This will be created on first insert
+            # Initialize collections
+            user_courses_collection = db_user_data['user_courses']
+            user_payments_collection = db_user_data['user_payments']
             
-            # Create indexes for better performance
-            try:
-                user_payments_collection.create_index([("email", 1), ("index_number", 1), ("level", 1)])
-                user_payments_collection.create_index([("transaction_ref", 1)])
-                user_payments_collection.create_index([("payment_confirmed", 1)])
-                user_courses_collection.create_index([("email", 1), ("index_number", 1), ("level", 1)])
-                print("✅ Database indexes created/verified")
-            except Exception as index_error:
-                print(f"⚠  Index creation warning: {index_error}")
+            # Create indexes
+            user_payments_collection.create_index([("email", 1), ("index_number", 1), ("level", 1)])
+            user_payments_collection.create_index([("transaction_ref", 1)])
+            user_payments_collection.create_index([("payment_confirmed", 1)])
+            user_courses_collection.create_index([("email", 1), ("index_number", 1), ("level", 1)])
             
             database_connected = True
-            print("✅ All database collections initialized successfully")
-            print("📊 Using collections:")
-            print("   - user_courses (existing)")
-            print("   - user_payments (will be created automatically)")
+            print("🎉 All database collections initialized successfully!")
             return True
             
-        except ServerSelectionTimeoutError as e:
-            print(f"❌ MongoDB Server Selection Timeout (attempt {attempt + 1}): {str(e)}")
-            if attempt < max_retries - 1:
-                print("🔄 Retrying connection...")
-                continue
-            else:
-                database_connected = False
-                return False
-                
-        except ConnectionFailure as e:
-            print(f"❌ MongoDB Connection Failure (attempt {attempt + 1}): {str(e)}")
-            if attempt < max_retries - 1:
-                print("🔄 Retrying connection...")
-                continue
-            else:
-                database_connected = False
-                return False
-                
         except Exception as e:
-            print(f"❌ Unexpected database connection error (attempt {attempt + 1}): {str(e)}")
+            print(f"❌ Database connection error (attempt {attempt + 1}): {str(e)}")
             if attempt < max_retries - 1:
-                print("🔄 Retrying connection...")
+                import time
+                time.sleep(2)
                 continue
             else:
                 database_connected = False
+                print("❌ Failed to connect to MongoDB after multiple attempts")
                 return False
 
 # Initialize database on startup
 if not initialize_database():
-    print("⚠  Running in fallback mode - database operations will be skipped")
+    print("⚠️ Running in fallback mode - database operations will be skipped")
 else:
     print("🎉 Database connection established successfully!")
 
@@ -171,21 +150,17 @@ class JSONEncoder:
 app.json_encoder = JSONEncoder
 
 # --- Helper Functions ---
-
 def parse_grade(grade_str):
     """Parse grade string, handling unexpected formats"""
     if not grade_str:
         return None
-        
     if grade_str in GRADE_VALUES:
         return grade_str
-        
     if '/' in grade_str:
         parts = grade_str.split('/')
         for part in parts:
             if part in GRADE_VALUES:
                 return part
-                
     return None
 
 def meets_requirement(requirement_key, requirement_grade, user_grades):
@@ -257,7 +232,6 @@ def check_artisan_course_qualification(course, user_grades, user_mean_grade):
     return check_diploma_course_qualification(course, user_grades, user_mean_grade)
 
 # --- Course Qualification Functions ---
-
 def get_qualifying_courses(user_grades, user_cluster_points):
     """Get all degree courses that the user qualifies for"""
     if not database_connected:
@@ -396,11 +370,9 @@ def get_qualifying_artisan_courses(user_grades, user_mean_grade):
     return qualifying_courses
 
 # --- Database Operations ---
-
 def save_user_payment(email, index_number, level, transaction_ref=None):
     """Save user payment information to payments collection"""
     if not database_connected:
-        print("⚠  Database not available - saving to session")
         session_key = f'{level}_payment_{index_number}'
         session[session_key] = {
             'email': email,
@@ -410,7 +382,6 @@ def save_user_payment(email, index_number, level, transaction_ref=None):
             'payment_confirmed': False,
             'created_at': datetime.now().isoformat()
         }
-        print(f"✅ Payment data saved to session for {email}")
         return
         
     payment_record = {
@@ -428,20 +399,21 @@ def save_user_payment(email, index_number, level, transaction_ref=None):
             {'$set': payment_record},
             upsert=True
         )
-        if result.upserted_id:
-            print(f"✅ New payment record created for {email}")
-        else:
-            print(f"✅ Payment record updated for {email}")
+        print(f"✅ Payment record saved for {email}")
     except Exception as e:
         print(f"❌ Error saving user payment: {str(e)}")
-        # Fallback to session
         session_key = f'{level}_payment_{index_number}'
         session[session_key] = payment_record
 
 def save_user_courses(email, index_number, level, courses):
     """Save user course results to courses collection"""
+    print(f"💾 Saving {len(courses)} courses for {email}, {index_number}, {level}")
+    
+    if not courses:
+        print("⚠️ No courses to save!")
+        return
+        
     if not database_connected:
-        print("⚠  Database not available - saving courses to session")
         session_key = f'{level}_courses_{index_number}'
         session[session_key] = {
             'email': email,
@@ -450,7 +422,7 @@ def save_user_courses(email, index_number, level, courses):
             'courses': courses,
             'created_at': datetime.now().isoformat()
         }
-        print(f"✅ Courses saved to session for {email}")
+        print(f"✅ Courses saved to session")
         return
         
     courses_record = {
@@ -467,24 +439,23 @@ def save_user_courses(email, index_number, level, courses):
             {'$set': courses_record},
             upsert=True
         )
+        
         if result.upserted_id:
-            print(f"✅ New courses record created for {email} with {len(courses)} courses")
+            print(f"✅ New courses record created with {len(courses)} courses")
         else:
-            print(f"✅ Courses record updated for {email} with {len(courses)} courses")
+            print(f"✅ Courses record updated with {len(courses)} courses")
+            
     except Exception as e:
         print(f"❌ Error saving user courses: {str(e)}")
-        # Fallback to session
         session_key = f'{level}_courses_{index_number}'
         session[session_key] = courses_record
 
 def update_transaction_ref(email, index_number, level, transaction_ref):
     """Update transaction reference for user"""
     if not database_connected:
-        print("⚠  Database not available - updating transaction ref in session")
         session_key = f'{level}_payment_{index_number}'
         if session_key in session:
             session[session_key]['transaction_ref'] = transaction_ref
-            print(f"✅ Transaction reference updated in session: {transaction_ref}")
         return
         
     try:
@@ -495,74 +466,54 @@ def update_transaction_ref(email, index_number, level, transaction_ref):
                 'payment_confirmed': False
             }}
         )
-        if result.modified_count > 0:
-            print(f"✅ Transaction reference updated in database: {transaction_ref}")
-        else:
-            print(f"⚠  No document found to update transaction ref for {email}")
+        print(f"✅ Transaction reference updated: {transaction_ref}")
     except Exception as e:
         print(f"❌ Error updating transaction reference: {str(e)}")
 
 def get_user_payment(email, index_number, level):
     """Get user payment info from database with fallback to session"""
-    # First try database
     if database_connected:
         try:
             payment_data = user_payments_collection.find_one(
                 {'email': email, 'index_number': index_number, 'level': level}
             )
             if payment_data:
-                print(f"✅ Payment data retrieved from database for {email}")
                 return payment_data
         except Exception as e:
             print(f"❌ Error getting user payment from database: {str(e)}")
     
-    # Fallback to session
     session_key = f'{level}_payment_{index_number}'
-    payment_data = session.get(session_key)
-    if payment_data:
-        print(f"✅ Payment data retrieved from session for {email}")
-    else:
-        print(f"⚠  No payment data found for {email}")
-    
-    return payment_data
+    return session.get(session_key)
 
 def get_user_courses_data(email, index_number, level):
     """Get user courses from database with fallback to session"""
-    # First try database
     if database_connected:
         try:
             courses_data = user_courses_collection.find_one(
                 {'email': email, 'index_number': index_number, 'level': level}
             )
             if courses_data:
-                print(f"✅ Courses data retrieved from database for {email}")
                 return courses_data
         except Exception as e:
             print(f"❌ Error getting user courses from database: {str(e)}")
     
-    # Fallback to session
     session_key = f'{level}_courses_{index_number}'
-    courses_data = session.get(session_key)
-    if courses_data:
-        print(f"✅ Courses data retrieved from session for {email}")
-    else:
-        print(f"⚠  No courses data found for {email}")
-    
-    return courses_data
+    return session.get(session_key)
 
 def mark_payment_confirmed(transaction_ref, mpesa_receipt=None):
     """Mark payment as confirmed - for STK Push"""
+    print(f"🔍 Confirming payment: {transaction_ref}")
+    
     if not database_connected:
-        print("⚠  Database not available - marking payment in session")
-        for key in session:
-            if session[key].get('transaction_ref') == transaction_ref:
+        payment_found = False
+        for key in list(session.keys()):
+            if isinstance(session.get(key), dict) and session[key].get('transaction_ref') == transaction_ref:
                 session[key]['payment_confirmed'] = True
                 session[key]['mpesa_receipt'] = mpesa_receipt
                 session[key]['payment_date'] = datetime.now().isoformat()
-                print(f"✅ Payment confirmed in session for transaction: {transaction_ref}")
-                return True
-        print(f"❌ No session found with transaction ref: {transaction_ref}")
-        return False
+                payment_found = True
+                break
+        return payment_found
         
     try:
         result = user_payments_collection.update_one(
@@ -573,12 +524,14 @@ def mark_payment_confirmed(transaction_ref, mpesa_receipt=None):
                 'payment_date': datetime.now()
             }}
         )
+        
         if result.modified_count > 0:
-            print(f"✅ Payment confirmed in database for transaction: {transaction_ref}, MpesaReceipt: {mpesa_receipt}")
+            print(f"✅ Payment confirmed: {transaction_ref}")
             return True
         else:
-            print(f"❌ No user found with transaction ref: {transaction_ref}")
+            print(f"⚠️ No payment found with transaction ref: {transaction_ref}")
             return False
+            
     except Exception as e:
         print(f"❌ Error marking payment confirmed: {str(e)}")
         return False
@@ -586,14 +539,12 @@ def mark_payment_confirmed(transaction_ref, mpesa_receipt=None):
 def mark_payment_confirmed_by_account(account_number, mpesa_receipt, amount=None):
     """Mark payment as confirmed by account number (index number) - for Paybill payments"""
     if not database_connected:
-        print("⚠  Database not available - marking payment in session by account")
         for key in session:
             if session[key].get('index_number') == account_number:
                 session[key]['payment_confirmed'] = True
                 session[key]['mpesa_receipt'] = mpesa_receipt
                 if amount:
                     session[key]['payment_amount'] = amount
-                print(f"✅ Payment confirmed in session for account: {account_number}")
                 return True
         return False
         
@@ -610,18 +561,12 @@ def mark_payment_confirmed_by_account(account_number, mpesa_receipt, amount=None
             {'index_number': account_number},
             {'$set': update_data}
         )
-        if result.modified_count > 0:
-            print(f"✅ Payment confirmed in database for account: {account_number}, MpesaReceipt: {mpesa_receipt}")
-            return True
-        else:
-            print(f"❌ No user found with account number: {account_number}")
-            return False
+        return result.modified_count > 0
     except Exception as e:
         print(f"❌ Error marking payment confirmed by account: {str(e)}")
         return False
 
 # --- MPesa Integration Functions ---
-
 def get_mpesa_access_token():
     """Get MPesa access token for authentication"""
     consumer_key = MPESA_CONSUMER_KEY
@@ -638,14 +583,12 @@ def get_mpesa_access_token():
         access_token = resp_json.get('access_token')
         
         if not access_token:
-            print('❌ MPesa OAuth error: No access_token in response!', resp_json)
             raise Exception('No access_token in MPesa OAuth response')
             
-        print('✅ MPesa access token retrieved successfully')
         return access_token
         
     except Exception as e:
-        print('❌ MPesa OAuth error:', response.status_code if 'response' in locals() else 'No response', str(e))
+        print('❌ MPesa OAuth error:', str(e))
         raise
 
 def initiate_stk_push(phone, amount=1):
@@ -660,7 +603,6 @@ def initiate_stk_push(phone, amount=1):
     try:
         access_token = get_mpesa_access_token()
         if not access_token:
-            print('Error: No access token received, aborting STK push.')
             return {'error': 'No access token received'}
             
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -698,7 +640,6 @@ def initiate_stk_push(phone, amount=1):
             timeout=30
         )
         
-        print('STK Push response:', response.status_code, response.text)
         return response.json()
         
     except Exception as e:
@@ -706,50 +647,39 @@ def initiate_stk_push(phone, amount=1):
         return {'error': str(e)}
 
 # --- Routes ---
-
 @app.route('/')
 def index():
-    """Home page"""
     return render_template('index.html')
 
 @app.route('/degree')
 def degree():
-    """Degree courses page"""
     return render_template('degree.html')
 
 @app.route('/diploma')
 def diploma():
-    """Diploma courses page"""
     return render_template('diploma.html')
 
 @app.route('/kmtc')
 def kmtc():
-    """KMTC courses page"""
     return render_template('kmtc.html')
 
 @app.route('/certificate')
 def certificate():
-    """Certificate courses page"""
     return render_template('certificate.html')
 
 @app.route('/artisan')
 def artisan():
-    """Artisan courses page"""
     return render_template('artisan.html')
 
 @app.route('/results')
 def results():
-    """Results page"""
     return render_template('results.html')
 
 # --- Grade Submission Routes ---
-
 @app.route('/submit-grades', methods=['POST'])
 def submit_grades():
-    """Process degree course grades submission"""
     try:
         form_data = request.form.to_dict()
-        print("Degree form data received:", form_data)
         
         user_grades = {}
         for subject_name, subject_code in SUBJECTS.items():
@@ -770,7 +700,6 @@ def submit_grades():
         session['degree_grades'] = user_grades
         session['degree_cluster_points'] = user_cluster_points
         session['degree_data_submitted'] = True
-        print(f"✅ Degree grades saved: {len(user_grades)} subjects, {len(user_cluster_points)} clusters")
         return redirect(url_for('enter_details', flow='degree'))
         
     except Exception as e:
@@ -780,10 +709,8 @@ def submit_grades():
 
 @app.route('/submit-diploma-grades', methods=['POST'])
 def submit_diploma_grades():
-    """Process diploma course grades submission"""
     try:
         form_data = request.form.to_dict()
-        print("Diploma form data received:", form_data)
         
         user_mean_grade = form_data.get('overall', '').upper()
         if user_mean_grade not in GRADE_VALUES:
@@ -800,7 +727,6 @@ def submit_diploma_grades():
         session['diploma_grades'] = user_grades
         session['diploma_mean_grade'] = user_mean_grade
         session['diploma_data_submitted'] = True
-        print(f"✅ Diploma grades saved: {len(user_grades)} subjects, mean grade: {user_mean_grade}")
         return redirect(url_for('enter_details', flow='diploma'))
         
     except Exception as e:
@@ -810,10 +736,8 @@ def submit_diploma_grades():
 
 @app.route('/submit-certificate-grades', methods=['POST'])
 def submit_certificate_grades():
-    """Process certificate course grades submission"""
     try:
         form_data = request.form.to_dict()
-        print("Certificate form data received:", form_data)
         
         user_mean_grade = form_data.get('overall', '').upper()
         if user_mean_grade not in GRADE_VALUES:
@@ -830,7 +754,6 @@ def submit_certificate_grades():
         session['certificate_grades'] = user_grades
         session['certificate_mean_grade'] = user_mean_grade
         session['certificate_data_submitted'] = True
-        print(f"✅ Certificate grades saved: {len(user_grades)} subjects, mean grade: {user_mean_grade}")
         return redirect(url_for('enter_details', flow='certificate'))
         
     except Exception as e:
@@ -840,10 +763,8 @@ def submit_certificate_grades():
 
 @app.route('/submit-artisan-grades', methods=['POST'])
 def submit_artisan_grades():
-    """Process artisan course grades submission"""
     try:
         form_data = request.form.to_dict()
-        print("Artisan form data received:", form_data)
         
         user_mean_grade = form_data.get('overall', '').upper()
         if user_mean_grade not in GRADE_VALUES:
@@ -860,7 +781,6 @@ def submit_artisan_grades():
         session['artisan_grades'] = user_grades
         session['artisan_mean_grade'] = user_mean_grade
         session['artisan_data_submitted'] = True
-        print(f"✅ Artisan grades saved: {len(user_grades)} subjects, mean grade: {user_mean_grade}")
         return redirect(url_for('enter_details', flow='artisan'))
         
     except Exception as e:
@@ -870,10 +790,8 @@ def submit_artisan_grades():
 
 @app.route('/submit-kmtc-grades', methods=['POST'])
 def submit_kmtc_grades():
-    """Process KMTC course grades submission"""
     try:
         form_data = request.form.to_dict()
-        print("KMTC form data received:", form_data)
         
         user_mean_grade = form_data.get('overall', '').upper()
         if user_mean_grade not in GRADE_VALUES:
@@ -890,7 +808,6 @@ def submit_kmtc_grades():
         session['kmtc_grades'] = user_grades
         session['kmtc_mean_grade'] = user_mean_grade
         session['kmtc_data_submitted'] = True
-        print(f"✅ KMTC grades saved: {len(user_grades)} subjects, mean grade: {user_mean_grade}")
         return redirect(url_for('enter_details', flow='kmtc'))
         
     except Exception as e:
@@ -899,10 +816,8 @@ def submit_kmtc_grades():
         return redirect(url_for('kmtc'))
 
 # --- User Details and Payment Routes ---
-
 @app.route('/enter-details/<flow>', methods=['GET', 'POST'])
 def enter_details(flow):
-    """Enter user details page"""
     if request.method == 'GET':
         if not session.get(f'{flow}_data_submitted'):
             flash("Please submit your grades first", "error")
@@ -926,17 +841,14 @@ def enter_details(flow):
 
 @app.route('/check-payment/<flow>')
 def check_payment(flow):
-    """Check payment status from database"""
     email = session.get('email')
     index_number = session.get('index_number')
     user_payment = get_user_payment(email, index_number, flow)
     paid = bool(user_payment and user_payment.get('payment_confirmed'))
-    print(f"Payment check for {email}: {paid}")
     return {'paid': paid}
 
 @app.route('/payment/<flow>', methods=['GET', 'POST'])
 def payment(flow):
-    """Payment processing page"""
     if request.method == 'GET':
         if not session.get('email') or not session.get('index_number'):
             flash("Please enter your details first", "error")
@@ -954,23 +866,7 @@ def payment(flow):
         index_number = session.get('index_number')
         
         if transaction_ref and email and index_number:
-            # Force create user_payments collection by inserting a document
-            if database_connected:
-                try:
-                    user_payments_collection.insert_one({
-                        'email': email,
-                        'index_number': index_number,
-                        'level': flow,
-                        'transaction_ref': transaction_ref,
-                        'payment_confirmed': False,
-                        'created_at': datetime.now()
-                    })
-                    print(f"✅ user_payments collection created with transaction: {transaction_ref}")
-                except Exception as e:
-                    print(f"❌ Error creating user_payments collection: {str(e)}")
-                    update_transaction_ref(email, index_number, flow, transaction_ref)
-            else:
-                update_transaction_ref(email, index_number, flow, transaction_ref)
+            update_transaction_ref(email, index_number, flow, transaction_ref)
 
         return {
             'success': True,
@@ -984,7 +880,6 @@ def payment(flow):
 
 @app.route('/payment-wait/<flow>')
 def payment_wait(flow):
-    """Payment waiting page"""
     email = session.get('email')
     index_number = session.get('index_number')
     transaction_ref = None
@@ -1001,13 +896,25 @@ def payment_wait(flow):
 
 @app.route('/check-payment-status/<flow>')
 def check_payment_status(flow):
-    """Check payment status and redirect if paid"""
     email = session.get('email')
     index_number = session.get('index_number')
-    user_payment = get_user_payment(email, index_number, flow)
     
-    if user_payment and user_payment.get('payment_confirmed'):
+    if not email or not index_number:
+        return {'paid': False, 'error': 'Session data missing'}
+    
+    user_payment = get_user_payment(email, index_number, flow)
+    session_paid = session.get(f'paid_{flow}') or session.get('payment_confirmed')
+    
+    payment_confirmed = (
+        (user_payment and user_payment.get('payment_confirmed')) or 
+        session_paid
+    )
+    
+    if payment_confirmed:
         session[f'paid_{flow}'] = True
+        session['payment_confirmed'] = True
+        session.modified = True
+        
         return {
             'paid': True,
             'redirect_url': url_for('show_results', flow=flow)
@@ -1016,13 +923,10 @@ def check_payment_status(flow):
         return {'paid': False}
 
 # --- MPesa Callback Routes ---
-
 @app.route('/mpesa/callback', methods=['POST'])
 def mpesa_callback():
-    """MPesa STK Push callback endpoint"""
     try:
         data = request.get_json(force=True)
-        print("MPesa STK callback received (full payload):", data)
         
         callback_metadata = data.get('Body', {}).get('stkCallback', {})
         transaction_ref = callback_metadata.get('CheckoutRequestID')
@@ -1030,23 +934,18 @@ def mpesa_callback():
         
         mpesa_receipt = None
         items = callback_metadata.get('CallbackMetadata', {}).get('Item', [])
-        print("CallbackMetadata Items:", items)
         for item in items:
             if item.get('Name') == 'MpesaReceiptNumber':
                 mpesa_receipt = item.get('Value')
                 break
-        print(f"Extracted transaction_ref: {transaction_ref}, MpesaReceiptNumber: {mpesa_receipt}")
         
         if transaction_ref and result_code == 0 and mpesa_receipt:
             result = mark_payment_confirmed(transaction_ref, mpesa_receipt)
             if result:
-                print(f"✅ Payment confirmed successfully. M-Pesa Receipt: {mpesa_receipt}")
                 return {'success': True}, 200
             else:
-                print(f"❌ Failed to mark payment as confirmed")
                 return {'success': False}, 400
         else:
-            print(f"❌ Payment failed or incomplete. ResultCode: {result_code}")
             return {'success': False}, 400
             
     except Exception as e:
@@ -1055,45 +954,25 @@ def mpesa_callback():
 
 @app.route('/mpesa/confirmation', methods=['POST'])
 def mpesa_confirmation():
-    """M-Pesa Paybill confirmation callback endpoint"""
     data = request.get_json(force=True)
     trans_id = data.get('TransID')
-    amount = data.get('TransAmount')
-    phone = data.get('MSISDN')
     account = data.get('BillRefNumber')
-    timestamp = data.get('TransactionTime')
-    transaction = {
-        'trans_id': trans_id,
-        'amount': amount,
-        'phone': phone,
-        'account': account,
-        'timestamp': timestamp,
-        'callback_type': 'confirmation'
-    }
-    print(f"MPesa confirmation received: {transaction}")
     
     if account:
-        result = mark_payment_confirmed_by_account(account, trans_id, amount)
-        print(f"User payment update result for index {account}: {result}")
+        mark_payment_confirmed_by_account(account, trans_id)
     
     return {'ResultCode': 0, 'ResultDesc': 'Accepted'}
 
 @app.route('/mpesa/validation', methods=['POST'])
 def mpesa_validation():
-    """M-Pesa validation callback endpoint"""
-    data = request.get_json(force=True)
-    print("MPesa validation received:", data)
-    
     return {
         "ResultCode": 0,
         "ResultDesc": "Accepted"
     }
 
 # --- Results Display Routes ---
-
 @app.route('/results/<flow>')
 def show_results(flow):
-    """Display qualification results after payment"""
     email = session.get('email')
     index_number = session.get('index_number')
     
@@ -1102,81 +981,85 @@ def show_results(flow):
         return redirect(url_for('index'))
     
     user_payment = get_user_payment(email, index_number, flow)
-    if not user_payment or not user_payment.get('payment_confirmed'):
+    session_paid = session.get(f'paid_{flow}') or session.get('payment_confirmed')
+    
+    if not user_payment and not session_paid:
         flash('Please complete payment to view your results.', 'error')
         return redirect(url_for('payment', flow=flow))
-
-    print(f"✅ Processing results for {flow} - Email: {email}, Index: {index_number}")
+    
+    if user_payment and not user_payment.get('payment_confirmed') and not session_paid:
+        flash('Payment not confirmed yet. Please wait or contact support.', 'error')
+        return redirect(url_for('payment_wait', flow=flow))
 
     qualifying_courses = []
+    user_grades = {}
+    user_mean_grade = None
+    user_cluster_points = {}
     
-    if flow == 'degree':
-        user_grades = session.get('degree_grades', {})
-        user_cluster_points = session.get('degree_cluster_points', {})
-        print(f"📊 Degree data - Grades: {len(user_grades)}, Clusters: {len(user_cluster_points)}")
-        qualifying_courses = get_qualifying_courses(user_grades, user_cluster_points)
-        template = 'results.html'
+    try:
+        if flow == 'degree':
+            user_grades = session.get('degree_grades', {})
+            user_cluster_points = session.get('degree_cluster_points', {})
+            qualifying_courses = get_qualifying_courses(user_grades, user_cluster_points)
+            
+        elif flow == 'diploma':
+            user_grades = session.get('diploma_grades', {})
+            user_mean_grade = session.get('diploma_mean_grade', '')
+            qualifying_courses = get_qualifying_diploma_courses(user_grades, user_mean_grade)
+            
+        elif flow == 'certificate':
+            user_grades = session.get('certificate_grades', {})
+            user_mean_grade = session.get('certificate_mean_grade', '')
+            qualifying_courses = get_qualifying_certificate_courses(user_grades, user_mean_grade)
+            
+        elif flow == 'artisan':
+            user_grades = session.get('artisan_grades', {})
+            user_mean_grade = session.get('artisan_mean_grade', '')
+            qualifying_courses = get_qualifying_artisan_courses(user_grades, user_mean_grade)
+            
+        elif flow == 'kmtc':
+            user_grades = session.get('kmtc_grades', {})
+            user_mean_grade = session.get('kmtc_mean_grade', '')
+            qualifying_courses = get_qualifying_kmtc_courses(user_grades, user_mean_grade)
+            
+        else:
+            flash("Invalid flow type", "error")
+            return redirect(url_for('index'))
+
+        # Save courses to database/session
+        save_user_courses(email, index_number, flow, qualifying_courses)
         
-    elif flow == 'diploma':
-        user_grades = session.get('diploma_grades', {})
-        user_mean_grade = session.get('diploma_mean_grade', '')
-        print(f"📊 Diploma data - Grades: {len(user_grades)}, Mean Grade: {user_mean_grade}")
-        qualifying_courses = get_qualifying_diploma_courses(user_grades, user_mean_grade)
-        template = 'diploma_results.html'
+        # Group courses by collection
+        courses_by_collection = {}
+        for course in qualifying_courses:
+            if flow == 'degree':
+                collection_name = course.get('cluster', 'Other')
+            else:
+                collection_name = course.get('collection', 'Other')
+            
+            if collection_name not in courses_by_collection:
+                courses_by_collection[collection_name] = []
+            courses_by_collection[collection_name].append(course)
         
-    elif flow == 'certificate':
-        user_grades = session.get('certificate_grades', {})
-        user_mean_grade = session.get('certificate_mean_grade', '')
-        print(f"📊 Certificate data - Grades: {len(user_grades)}, Mean Grade: {user_mean_grade}")
-        qualifying_courses = get_qualifying_certificate_courses(user_grades, user_mean_grade)
-        template = 'certificate_results.html'
-        
-    elif flow == 'artisan':
-        user_grades = session.get('artisan_grades', {})
-        user_mean_grade = session.get('artisan_mean_grade', '')
-        print(f"📊 Artisan data - Grades: {len(user_grades)}, Mean Grade: {user_mean_grade}")
-        qualifying_courses = get_qualifying_artisan_courses(user_grades, user_mean_grade)
-        template = 'artisan_results.html'
-        
-    elif flow == 'kmtc':
-        user_grades = session.get('kmtc_grades', {})
-        user_mean_grade = session.get('kmtc_mean_grade', '')
-        print(f"📊 KMTC data - Grades: {len(user_grades)}, Mean Grade: {user_mean_grade}")
-        qualifying_courses = get_qualifying_kmtc_courses(user_grades, user_mean_grade)
-        template = 'kmtc_results.html'
-        
-    else:
-        flash("Invalid flow type", "error")
+        return render_template('collection_results.html', 
+                             courses=qualifying_courses,
+                             courses_by_collection=courses_by_collection,
+                             user_grades=user_grades, 
+                             user_mean_grade=user_mean_grade,
+                             user_cluster_points=user_cluster_points,
+                             subjects=SUBJECTS, 
+                             email=email, 
+                             index_number=index_number,
+                             flow=flow)
+                             
+    except Exception as e:
+        print(f"❌ Error in show_results: {str(e)}")
+        flash("An error occurred while generating your results", "error")
         return redirect(url_for('index'))
 
-    print(f"🎯 Found {len(qualifying_courses)} qualifying courses for {flow}")
-
-    save_user_courses(email, index_number, flow, qualifying_courses)
-    
-    courses_by_collection = {}
-    for course in qualifying_courses:
-        collection_name = course.get('collection', 'Other')
-        if collection_name not in courses_by_collection:
-            courses_by_collection[collection_name] = []
-        courses_by_collection[collection_name].append(course)
-    
-    print(f"📂 Grouped into {len(courses_by_collection)} collections")
-    
-    return render_template(template, 
-                         courses=qualifying_courses,
-                         courses_by_collection=courses_by_collection,
-                         user_grades=user_grades, 
-                         user_mean_grade=user_mean_grade if flow != 'degree' else None,
-                         user_cluster_points=user_cluster_points if flow == 'degree' else None,
-                         subjects=SUBJECTS, 
-                         email=email, 
-                         index_number=index_number)
-
 # --- Collection-based Results Routes ---
-
 @app.route('/collection-courses/<flow>/<collection_name>')
 def show_collection_courses(flow, collection_name):
-    """Show courses for a specific collection"""
     email = session.get('email')
     index_number = session.get('index_number')
     
@@ -1226,10 +1109,8 @@ def show_collection_courses(flow, collection_name):
                          index_number=index_number)
 
 # --- Debug and Testing Routes ---
-
 @app.route('/debug/database')
 def debug_database():
-    """Debug endpoint to check database status"""
     status = {
         'database_connected': database_connected,
         'collections_initialized': {
@@ -1250,9 +1131,72 @@ def debug_database():
     
     return jsonify(status)
 
+@app.route('/debug/payment-status')
+def debug_payment_status():
+    email = session.get('email')
+    index_number = session.get('index_number')
+    flow = session.get('current_flow')
+    
+    status = {
+        'email': email,
+        'index_number': index_number,
+        'current_flow': flow,
+        'session_keys': list(session.keys()),
+        'session_payment_status': {
+            'paid_degree': session.get('paid_degree'),
+            'paid_diploma': session.get('paid_diploma'),
+            'paid_certificate': session.get('paid_certificate'),
+            'paid_artisan': session.get('paid_artisan'),
+            'paid_kmtc': session.get('paid_kmtc'),
+            'payment_confirmed': session.get('payment_confirmed')
+        }
+    }
+    
+    if email and index_number and flow:
+        user_payment = get_user_payment(email, index_number, flow)
+        status['database_payment'] = user_payment
+    
+    return jsonify(status)
+
+@app.route('/force-results/<flow>')
+def force_results(flow):
+    session[f'paid_{flow}'] = True
+    session['payment_confirmed'] = True
+    session['email'] = session.get('email') or 'test@example.com'
+    session['index_number'] = session.get('index_number') or '12345678901/2024'
+    
+    if flow == 'artisan' and not session.get('artisan_grades'):
+        session['artisan_grades'] = {'MAT': 'C', 'ENG': 'C', 'KIS': 'C'}
+        session['artisan_mean_grade'] = 'C'
+    
+    flash("Forced results display for testing", "info")
+    return redirect(url_for('show_results', flow=flow))
+
+@app.route('/debug/db-status')
+def debug_db_status():
+    status = {
+        'database_connected': database_connected,
+        'collections': {}
+    }
+    
+    if database_connected:
+        try:
+            status['collections']['degree'] = db.list_collection_names()
+            status['collections']['diploma'] = db_diploma.list_collection_names()
+            status['collections']['certificate'] = db_certificate.list_collection_names()
+            status['collections']['artisan'] = db_artisan.list_collection_names()
+            status['collections']['kmtc'] = db_kmtc.list_collection_names()
+            
+            status['user_payments_count'] = user_payments_collection.count_documents({})
+            status['user_courses_count'] = user_courses_collection.count_documents({})
+            
+        except Exception as e:
+            status['error'] = str(e)
+    
+    return jsonify(status)
+
 @app.route('/temp-bypass/<flow>')
 def temp_bypass(flow):
-    """Temporary route to bypass payment for testing"""
     session[f'paid_{flow}'] = True
     session['email'] = 'test@example.com'
     session['index_number'] = '123456/2024'
@@ -1269,4 +1213,4 @@ def temp_bypass(flow):
 if __name__ == "__main__":
     print("🚀 Starting KUCCPS Application...")
     print(f"📊 Database Connection Status: {'✅ Connected' if database_connected else '❌ Disconnected'}")
-    app.run(host='0.0.0.0', port=8080, debug=True)
+    app.run(host='0.0.0.0', port=8080, debug=False)

@@ -7,7 +7,7 @@
     <div class="row justify-content-center">
         <div class="col-md-8">
             <div class="card">
-                <div class="card-header bg-warning">
+                <div class="card-header bg-warning text-dark">
                     <h4 class="mb-0"><i class="fas fa-sync-alt fa-spin"></i> Payment Processing</h4>
                 </div>
                 <div class="card-body">
@@ -15,7 +15,8 @@
                         <h5>Payment Status: <span id="statusText">Waiting for confirmation...</span></h5>
                         <p class="mb-2">Please check your phone and enter your M-Pesa PIN to complete the payment.</p>
                         {% if transaction_ref %}
-                        <p class="mb-0"><strong>Transaction ID:</strong> <code>{{ transaction_ref }}</code></p>
+                        <p class="mb-0"><strong>Transaction ID:</strong> <code
+                                id="transactionRef">{{ transaction_ref }}</code></p>
                         {% endif %}
                     </div>
 
@@ -32,8 +33,39 @@
                         <p>Redirecting to your results...</p>
                     </div>
 
+                    <!-- Error Message (hidden initially) -->
+                    <div id="errorMessage" class="alert alert-danger" style="display: none;">
+                        <h5><i class="fas fa-exclamation-triangle"></i> Payment Issue</h5>
+                        <p id="errorText"></p>
+                    </div>
+
+                    <!-- Troubleshooting Section (hidden initially) -->
+                    <div id="troubleshooting" class="mt-4" style="display: none;">
+                        <div class="alert alert-warning">
+                            <h6>Having issues with payment?</h6>
+                            <div class="d-flex gap-2 flex-wrap mt-2">
+                                <a href="{{ url_for('payment', flow=flow) }}" class="btn btn-sm btn-outline-primary">
+                                    Retry Payment
+                                </a>
+                                <a href="/debug/payment-status" target="_blank" class="btn btn-sm btn-outline-info">
+                                    Check Payment Status
+                                </a>
+                                <a href="/force-results/{{ flow }}" class="btn btn-sm btn-outline-warning">
+                                    Force Results (Testing)
+                                </a>
+                                <a href="/" class="btn btn-sm btn-outline-secondary">
+                                    Return Home
+                                </a>
+                            </div>
+                            <p class="mt-2 mb-0 small">
+                                <strong>Note:</strong> If you've already paid, your payment may be processing.
+                                Try the "Check Payment Status" button or wait a few minutes.
+                            </p>
+                        </div>
+                    </div>
+
                     <div class="text-center mt-4">
-                        <a href="{{ url_for('payment', flow=flow) }}" class="btn btn-secondary">Retry Payment</a>
+                        <a href="{{ url_for('payment', flow=flow) }}" class="btn btn-secondary me-2">Retry Payment</a>
                         <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Return Home</a>
                     </div>
                 </div>
@@ -47,18 +79,28 @@
     let checkCount = 0;
     const maxChecks = 60; // 3 minutes maximum
 
+    // Store flow and transaction_ref in JavaScript variables
+    const flow = "{{ flow }}";
+    const transactionRef = "{{ transaction_ref }}" || null;
+    const checkStatusUrl = "{{ check_status_url }}";
+
     function checkPaymentStatus() {
         checkCount++;
 
-        fetch("{{ check_status_url }}")
+        console.log(`🔄 Payment status check #${checkCount} for flow: ${flow}`);
+        if (transactionRef) {
+            console.log(`Transaction Reference: ${transactionRef}`);
+        }
+
+        fetch(checkStatusUrl)
             .then(response => {
                 if (!response.ok) {
-                    throw new Error('Network response was not ok');
+                    throw new Error(`HTTP ${response.status}`);
                 }
                 return response.json();
             })
             .then(data => {
-                console.log('Payment status check:', data);
+                console.log('📊 Payment status response:', data);
 
                 if (data.paid) {
                     // Payment confirmed!
@@ -67,35 +109,134 @@
                     document.getElementById('waitingText').style.display = 'none';
                     document.getElementById('successMessage').style.display = 'block';
 
-                    // Redirect to results page
-                    console.log('Redirecting to:', data.redirect_url);
+                    console.log('✅ Payment confirmed, redirecting to:', data.redirect_url);
+
+                    // Short delay to show success message, then redirect
                     setTimeout(() => {
-                        window.location.href = data.redirect_url || "/results/{{ flow }}";
+                        if (data.redirect_url) {
+                            window.location.href = data.redirect_url;
+                        } else {
+                            window.location.href = `/results/${flow}`;
+                        }
                     }, 2000);
+
                 } else {
-                    // Continue checking
+                    // Continue checking with detailed logging
+                    console.log('⏳ Payment not confirmed:', data.details || 'Checking...');
+
+                    // Update waiting text to show progress
+                    if (checkCount > 10) {
+                        document.getElementById('waitingText').textContent =
+                            `Still waiting... (${checkCount}/${maxChecks} checks completed)`;
+                    }
+
                     if (checkCount < maxChecks) {
+                        console.log('🔄 Checking again in 3 seconds...');
                         setTimeout(checkPaymentStatus, 3000);
                     } else {
                         // Timeout reached
-                        document.getElementById('statusText').textContent = 'Payment check timeout';
-                        document.getElementById('statusText').className = 'text-danger';
-                        document.getElementById('waitingText').textContent = 'Please refresh the page or contact support';
+                        console.log('⏰ Payment check timeout reached');
+                        handlePaymentTimeout();
                     }
                 }
             })
             .catch(error => {
-                console.error('Error checking payment status:', error);
+                console.error('❌ Error checking payment status:', error);
+
+                // Show error message after multiple failures
+                if (checkCount > 5) {
+                    document.getElementById('errorMessage').style.display = 'block';
+                    document.getElementById('errorText').textContent =
+                        'Unable to connect to payment server. Please check your internet connection.';
+                }
+
                 if (checkCount < maxChecks) {
+                    console.log('🔄 Retrying after error...');
                     setTimeout(checkPaymentStatus, 3000);
+                } else {
+                    handlePaymentTimeout();
                 }
             });
     }
 
+    function handlePaymentTimeout() {
+        document.getElementById('statusText').textContent = 'Payment Processing Delayed';
+        document.getElementById('statusText').className = 'text-warning';
+        document.getElementById('waitingText').textContent =
+            'Payment is taking longer than expected.';
+
+        // Show troubleshooting options
+        document.getElementById('troubleshooting').style.display = 'block';
+
+        // Hide the spinner
+        const spinner = document.querySelector('.spinner-border');
+        if (spinner) {
+            spinner.style.display = 'none';
+        }
+    }
+
     // Start checking when page loads
     document.addEventListener('DOMContentLoaded', function () {
-        console.log('Starting payment status checks...');
+        console.log('Starting payment status checks for flow:', flow);
+
+        // Add manual check button functionality
+        const debugLink = document.querySelector('a[href*="debug/payment-status"]');
+        if (debugLink) {
+            debugLink.addEventListener('click', function (e) {
+                e.preventDefault();
+                window.open(this.href, '_blank');
+            });
+        }
+
+        // Start the payment status checks
         checkPaymentStatus();
     });
+
+    // Add keyboard shortcut for manual refresh
+    document.addEventListener('keydown', function (e) {
+        if (e.ctrlKey && e.key === 'r') {
+            e.preventDefault();
+            location.reload();
+        }
+    });
 </script>
+
+<style>
+    .spinner-border {
+        width: 3rem;
+        height: 3rem;
+    }
+
+    .card-header.bg-warning {
+        background: linear-gradient(135deg, #ffc107, #ffb300) !important;
+    }
+
+    .alert-info {
+        border-left: 4px solid #0dcaf0;
+    }
+
+    .alert-success {
+        border-left: 4px solid #198754;
+    }
+
+    .alert-danger {
+        border-left: 4px solid #dc3545;
+    }
+
+    .alert-warning {
+        border-left: 4px solid #ffc107;
+    }
+
+    code {
+        background: #f8f9fa;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-family: 'Courier New', monospace;
+    }
+
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+</style>
 {% endblock %}

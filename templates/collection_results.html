@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 
-{% block title %}Diploma Qualification Results{% endblock %}
+{% block title %}{{ flow|title }} Qualification Results{% endblock %}
 
 {% block content %}
 <div class="container mt-5">
-    <h1 class="text-primary mb-4">Diploma Qualification Results</h1>
+    <h1 class="text-primary mb-4">{{ flow|title }} Qualification Results</h1>
 
     {% if courses and courses|length > 0 %}
     <div class="alert alert-success" role="alert">
-        <strong>Success!</strong> You qualify for <strong>{{ courses|length }}</strong> diploma courses across
+        <strong>Success!</strong> You qualify for <strong>{{ courses|length }}</strong> {{ flow }} courses across
         <strong>{{ courses_by_collection|length }}</strong> categories.
     </div>
 
@@ -20,7 +20,7 @@
         <div class="card-body">
             <div id="collections" class="d-flex flex-wrap gap-2">
                 <button class="btn btn-primary collection-btn active" type="button" data-collection="all"
-                    title="Show all diploma courses">
+                    title="Show all {{ flow }} courses">
                     All Categories ({{ courses|length }})
                 </button>
                 {% for collection_name, collection_courses in courses_by_collection.items() %}
@@ -36,7 +36,7 @@
     <!-- Dynamic Courses Display Area -->
     <div id="courses-display" aria-live="polite">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2 id="current-collection-title" class="h4">All Diploma Courses ({{ courses|length }})</h2>
+            <h2 id="current-collection-title" class="h4">All {{ flow|title }} Courses ({{ courses|length }})</h2>
         </div>
 
         <div id="courses-grid" class="row">
@@ -53,14 +53,24 @@
                         <p class="card-text mb-2">
                             <strong>Institution:</strong> {{ course.institution_name or 'Not Specified' }}<br>
                             <strong>Programme Code:</strong> {{ course.programme_code or 'N/A' }}<br>
-                            <strong>Category:</strong> {{ course.collection or 'Uncategorized' }}
+                            <strong>Category:</strong> {{ course.collection if flow != 'degree' else course.cluster or
+                            'Uncategorized' }}
                         </p>
 
+                        {% if flow == 'degree' %}
+                        {% if course.cut_off_points %}
+                        <p class="card-text mb-2">
+                            <strong>Cut-off Points:</strong>
+                            <span class="badge bg-info">{{ course.cut_off_points }}</span>
+                        </p>
+                        {% endif %}
+                        {% else %}
                         {% if course.minimum_grade and course.minimum_grade.mean_grade %}
                         <p class="card-text mb-2">
                             <strong>Minimum Mean Grade:</strong>
                             <span class="badge bg-info">{{ course.minimum_grade.mean_grade }}</span>
                         </p>
+                        {% endif %}
                         {% endif %}
 
                         {% if course.minimum_subject_requirements %}
@@ -72,12 +82,6 @@
                                 {% endfor %}
                             </div>
                         </div>
-                        {% endif %}
-
-                        {% if course.programme_duration %}
-                        <p class="card-text mb-2">
-                            <strong>Duration:</strong> {{ course.programme_duration }}
-                        </p>
                         {% endif %}
                     </div>
                 </div>
@@ -93,7 +97,8 @@
     {% else %}
     <div class="alert alert-warning" role="alert">
         <strong>No qualifying courses found.</strong>
-        You do not qualify for any diploma courses based on your grades and mean grade.
+        You do not qualify for any {{ flow }} courses based on your
+        {% if flow == 'degree' %}grades and cluster points{% else %}grades and mean grade{% endif %}.
     </div>
     {% endif %}
 
@@ -104,7 +109,7 @@
         </div>
         <div class="card-body">
             <div class="row">
-                <div class="col-md-8">
+                <div class="col-md-{% if flow == 'degree' %}6{% else %}8{% endif %}">
                     <h3 class="h6">Subject Grades:</h3>
                     <div class="d-flex flex-wrap gap-2">
                         {% for code, grade in user_grades.items() %}
@@ -115,19 +120,34 @@
                     </div>
                 </div>
 
+                {% if flow == 'degree' %}
+                <div class="col-md-6">
+                    <h3 class="h6">Cluster Points:</h3>
+                    <div class="d-flex flex-wrap gap-1">
+                        {% for cluster, points in user_cluster_points.items() %}
+                        {% if points > 0 %}
+                        <span class="badge bg-success">{{ cluster|replace('_', ' ') }}: {{ points }}</span>
+                        {% endif %}
+                        {% else %}
+                        <span class="text-muted">No cluster points entered</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
                 <div class="col-md-4">
                     <h3 class="h6">Overall Mean Grade:</h3>
                     <div class="alert alert-success mb-0 py-2">
                         <strong class="h5">{{ user_mean_grade or 'Not specified' }}</strong>
                     </div>
                 </div>
+                {% endif %}
             </div>
         </div>
     </div>
 
     <!-- Action Buttons -->
     <div class="mt-4 d-flex gap-2 flex-wrap">
-        <a href="/diploma" class="btn btn-primary">Try Again</a>
+        <a href="/{{ flow }}" class="btn btn-primary">Try Again</a>
         <a href="/" class="btn btn-secondary">Back to Home</a>
         {% if courses %}
         <button onclick="window.print()" class="btn btn-info">Print Results</button>
@@ -155,7 +175,7 @@
             });
 
             collectionTitle.textContent = collection === 'all'
-                ? `All Diploma Courses ({{ courses|length }})`
+                ? `All {{ flow|title }} Courses ({{ courses|length }})`
                 : `${collection.replace('_', ' ')} Courses (${visibleCount})`;
 
             noCoursesMessage.style.display = visibleCount === 0 ? 'block' : 'none';
@@ -220,10 +240,6 @@
 
     .course-item {
         transition: all 0.3s ease;
-    }
-
-    .card-header {
-        border-bottom: 1px solid #dee2e6;
     }
 </style>
 {% endblock %}
