@@ -8,83 +8,145 @@
         <div class="col-md-8">
             <div class="card">
                 <div class="card-header bg-warning text-dark">
-                    <h4 class="mb-0"><i class="fas fa-sync-alt fa-spin"></i> Payment Processing</h4>
+                    <h4 class="mb-0"><i class="fas fa-sync-alt fa-spin me-2"></i> Payment Processing</h4>
                 </div>
                 <div class="card-body">
-                    <div class="alert alert-info">
-                        <h5>Payment Status: <span id="statusText">Waiting for confirmation...</span></h5>
+                    <!-- Payment Information -->
+                    <div class="alert alert-info mb-4">
+                        <h5 class="alert-heading">Payment Status: <span id="statusText">Waiting for
+                                confirmation...</span></h5>
                         <p class="mb-2">Please check your phone and enter your M-Pesa PIN to complete the payment.</p>
                         {% if transaction_ref %}
                         <p class="mb-0"><strong>Transaction ID:</strong> <code
                                 id="transactionRef">{{ transaction_ref }}</code></p>
                         {% endif %}
+                        <p class="mb-0 mt-2 small"><i class="fas fa-info-circle me-1"></i>Amount: <strong>Ksh {{
+                                session.get('payment_amount', 1) }}</strong></p>
                     </div>
 
-                    <div class="text-center my-4">
+                    <!-- Loading Animation -->
+                    <div class="text-center my-4" id="loadingSection">
                         <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
                             <span class="visually-hidden">Processing payment...</span>
                         </div>
                         <p class="mt-3" id="waitingText">Waiting for payment confirmation...</p>
+                        <p class="small text-muted" id="checkCountText">Check #<span id="currentCheck">0</span> of 60
+                        </p>
                     </div>
 
-                    <!-- Success Message (hidden initially) -->
+                    <!-- Success Message -->
                     <div id="successMessage" class="alert alert-success" style="display: none;">
-                        <h5><i class="fas fa-check-circle"></i> Payment Confirmed!</h5>
-                        <p>Redirecting to your results...</p>
+                        <h5><i class="fas fa-check-circle me-2"></i> Payment Confirmed!</h5>
+                        <p class="mb-0">Your payment has been confirmed. Redirecting to your results...</p>
                     </div>
 
-                    <!-- Error Message (hidden initially) -->
+                    <!-- Error Message -->
                     <div id="errorMessage" class="alert alert-danger" style="display: none;">
-                        <h5><i class="fas fa-exclamation-triangle"></i> Payment Issue</h5>
-                        <p id="errorText"></p>
+                        <h5><i class="fas fa-exclamation-triangle me-2"></i> Payment Issue</h5>
+                        <p id="errorText" class="mb-0"></p>
                     </div>
 
-                    <!-- Troubleshooting Section (hidden initially) -->
+                    <!-- Timeout Message -->
+                    <div id="timeoutMessage" class="alert alert-warning" style="display: none;">
+                        <h5><i class="fas fa-clock me-2"></i> Processing Taking Longer Than Expected</h5>
+                        <p class="mb-2">Your payment is still being processed. This can sometimes take a few minutes.
+                        </p>
+                        <p class="mb-0 small">If you've completed the payment on your phone, your results should be
+                            available shortly.</p>
+                    </div>
+
+                    <!-- Troubleshooting Section -->
                     <div id="troubleshooting" class="mt-4" style="display: none;">
                         <div class="alert alert-warning">
-                            <h6>Having issues with payment?</h6>
+                            <h6><i class="fas fa-tools me-2"></i> Having issues with payment?</h6>
                             <div class="d-flex gap-2 flex-wrap mt-2">
                                 <a href="{{ url_for('payment', flow=flow) }}" class="btn btn-sm btn-outline-primary">
-                                    Retry Payment
+                                    <i class="fas fa-redo me-1"></i>Retry Payment
                                 </a>
                                 <a href="/debug/payment-status" target="_blank" class="btn btn-sm btn-outline-info">
-                                    Check Payment Status
+                                    <i class="fas fa-search me-1"></i>Check Payment Status
                                 </a>
                                 <a href="/force-results/{{ flow }}" class="btn btn-sm btn-outline-warning">
-                                    Force Results (Testing)
+                                    <i class="fas fa-bolt me-1"></i>Force Results (Testing)
                                 </a>
                                 <a href="/" class="btn btn-sm btn-outline-secondary">
-                                    Return Home
+                                    <i class="fas fa-home me-1"></i>Return Home
                                 </a>
                             </div>
                             <p class="mt-2 mb-0 small">
-                                <strong>Note:</strong> If you've already paid, your payment may be processing.
-                                Try the "Check Payment Status" button or wait a few minutes.
+                                <strong>Note:</strong> If you've already paid, your payment may still be processing.
+                                Try the "Check Payment Status" button or wait a few minutes before retrying.
                             </p>
                         </div>
                     </div>
 
-                    <div class="text-center mt-4">
-                        <a href="{{ url_for('payment', flow=flow) }}" class="btn btn-secondary me-2">Retry Payment</a>
-                        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Return Home</a>
+                    <!-- Action Buttons -->
+                    <div class="text-center mt-4" id="actionButtons">
+                        <a href="{{ url_for('payment', flow=flow) }}" class="btn btn-primary me-2">
+                            <i class="fas fa-redo me-1"></i>Retry Payment
+                        </a>
+                        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                            <i class="fas fa-home me-1"></i>Return Home
+                        </a>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
-    // Auto-check payment status every 3 seconds
-    let checkCount = 0;
-    const maxChecks = 60; // 3 minutes maximum
+     // Payment status checking variables
+        let checkCount = 0;
+        const maxChecks = 60; // 3 minutes maximum (60 * 3 seconds)
+        let isChecking = false;
+        let checkInterval;
 
-    // Store flow and transaction_ref in JavaScript variables
-    const flow = "{{ flow }}";
-    const transactionRef = "{{ transaction_ref }}" || null;
-    const checkStatusUrl = "{{ check_status_url }}";
+        // Store flow and transaction_ref in JavaScript variables
+        const flow = "{{ flow }}";
+        const transactionRef = "{{ transaction_ref }}" || null;
+        const checkStatusUrl = "{{ check_status_url }}";
+        const sessionAmount = "{{ session.get('payment_amount', 1) }}";
 
-    function checkPaymentStatus() {
+        // DOM elements
+        let statusText, waitingText, currentCheck, checkCountText;
+        let successMessage, errorMessage, timeoutMessage, troubleshooting;
+        let loadingSection, actionButtons;
+    function initializeElements() {
+        statusText = document.getElementById('statusText');
+        waitingText = document.getElementById('waitingText');
+        currentCheck = document.getElementById('currentCheck');
+        checkCountText = document.getElementById('checkCountText');
+        successMessage = document.getElementById('successMessage');
+        errorMessage = document.getElementById('errorMessage');
+        timeoutMessage = document.getElementById('timeoutMessage');
+        troubleshooting = document.getElementById('troubleshooting');
+        loadingSection = document.getElementById('loadingSection');
+        actionButtons = document.getElementById('actionButtons');
+    }
+
+    function updateUI() {
+        if (currentCheck) {
+            currentCheck.textContent = checkCount;
+        }
+
+        // Show timeout warning after 10 checks (30 seconds)
+        if (checkCount > 10 && timeoutMessage && timeoutMessage.style.display === 'none') {
+            timeoutMessage.style.display = 'block';
+        }
+
+        // Update waiting text to show progress
+        if (checkCount > 5 && waitingText) {
+            waitingText.textContent = `Processing... (${checkCount}/${maxChecks} checks completed)`;
+        }
+    }
+
+    async function checkPaymentStatus() {
+        if (isChecking) return;
+
+        isChecking = true;
         checkCount++;
 
         console.log(`🔄 Payment status check #${checkCount} for flow: ${flow}`);
@@ -92,93 +154,157 @@
             console.log(`Transaction Reference: ${transactionRef}`);
         }
 
-        fetch(checkStatusUrl)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                console.log('📊 Payment status response:', data);
+        try {
+            updateUI();
 
-                if (data.paid) {
-                    // Payment confirmed!
-                    document.getElementById('statusText').textContent = 'Payment Confirmed!';
-                    document.getElementById('statusText').className = 'text-success fw-bold';
-                    document.getElementById('waitingText').style.display = 'none';
-                    document.getElementById('successMessage').style.display = 'block';
+            const response = await fetch(checkStatusUrl);
 
-                    console.log('✅ Payment confirmed, redirecting to:', data.redirect_url);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
 
-                    // Short delay to show success message, then redirect
-                    setTimeout(() => {
-                        if (data.redirect_url) {
-                            window.location.href = data.redirect_url;
-                        } else {
-                            window.location.href = `/results/${flow}`;
-                        }
-                    }, 2000);
+            const data = await response.json();
+            console.log('📊 Payment status response:', data);
 
-                } else {
-                    // Continue checking with detailed logging
-                    console.log('⏳ Payment not confirmed:', data.details || 'Checking...');
-
-                    // Update waiting text to show progress
-                    if (checkCount > 10) {
-                        document.getElementById('waitingText').textContent =
-                            `Still waiting... (${checkCount}/${maxChecks} checks completed)`;
-                    }
-
-                    if (checkCount < maxChecks) {
-                        console.log('🔄 Checking again in 3 seconds...');
-                        setTimeout(checkPaymentStatus, 3000);
-                    } else {
-                        // Timeout reached
-                        console.log('⏰ Payment check timeout reached');
-                        handlePaymentTimeout();
-                    }
-                }
-            })
-            .catch(error => {
-                console.error('❌ Error checking payment status:', error);
-
-                // Show error message after multiple failures
-                if (checkCount > 5) {
-                    document.getElementById('errorMessage').style.display = 'block';
-                    document.getElementById('errorText').textContent =
-                        'Unable to connect to payment server. Please check your internet connection.';
-                }
-
-                if (checkCount < maxChecks) {
-                    console.log('🔄 Retrying after error...');
-                    setTimeout(checkPaymentStatus, 3000);
-                } else {
-                    handlePaymentTimeout();
-                }
-            });
-    }
-
-    function handlePaymentTimeout() {
-        document.getElementById('statusText').textContent = 'Payment Processing Delayed';
-        document.getElementById('statusText').className = 'text-warning';
-        document.getElementById('waitingText').textContent =
-            'Payment is taking longer than expected.';
-
-        // Show troubleshooting options
-        document.getElementById('troubleshooting').style.display = 'block';
-
-        // Hide the spinner
-        const spinner = document.querySelector('.spinner-border');
-        if (spinner) {
-            spinner.style.display = 'none';
+            if (data.paid) {
+                // Payment confirmed!
+                handlePaymentSuccess(data);
+            } else {
+                // Payment not confirmed yet
+                handlePaymentPending(data);
+            }
+        } catch (error) {
+            console.error('❌ Error checking payment status:', error);
+            handlePaymentError(error);
+        } finally {
+            isChecking = false;
         }
     }
 
-    // Start checking when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        console.log('Starting payment status checks for flow:', flow);
+    function handlePaymentSuccess(data) {
+        // Stop checking
+        if (checkInterval) {
+            clearInterval(checkInterval);
+        }
 
+        // Update UI for success
+        if (statusText) {
+            statusText.textContent = 'Payment Confirmed!';
+            statusText.className = 'text-success fw-bold';
+        }
+
+        if (loadingSection) loadingSection.style.display = 'none';
+        if (successMessage) successMessage.style.display = 'block';
+        if (actionButtons) actionButtons.style.display = 'none';
+
+        console.log('✅ Payment confirmed, redirecting to:', data.redirect_url);
+
+        // Short delay to show success message, then redirect
+        setTimeout(() => {
+            const redirectUrl = data.redirect_url || `/results/${flow}`;
+            console.log('🔀 Redirecting to:', redirectUrl);
+            window.location.href = redirectUrl;
+        }, 2000);
+    }
+
+    function handlePaymentPending(data) {
+        console.log('⏳ Payment not confirmed yet:', data.details || 'Still processing...');
+
+        // Continue checking if we haven't reached the maximum
+        if (checkCount < maxChecks) {
+            console.log('🔄 Will check again in 3 seconds...');
+        } else {
+            // Timeout reached
+            handlePaymentTimeout();
+        }
+    }
+
+    function handlePaymentError(error) {
+        // Show error message after multiple failures
+        if (checkCount > 3 && errorMessage) {
+            errorMessage.style.display = 'block';
+            const errorText = document.getElementById('errorText');
+
+            if (errorText) {
+                if (error.message.includes('Failed to fetch') || error.message.includes('Network')) {
+                    errorText.textContent = 'Unable to connect to payment server. Please check your internet connection.';
+                } else {
+                    errorText.textContent = 'Temporary server issue. Please try again in a moment.';
+                }
+            }
+        }
+
+        // Continue checking if we haven't reached the maximum
+        if (checkCount < maxChecks) {
+            console.log('🔄 Retrying after error...');
+        } else {
+            handlePaymentTimeout();
+        }
+    }
+
+    function handlePaymentTimeout() {
+        console.log('⏰ Payment check timeout reached');
+
+        // Stop checking
+        if (checkInterval) {
+            clearInterval(checkInterval);
+        }
+
+        // Update UI for timeout
+        if (statusText) {
+            statusText.textContent = 'Payment Processing Delayed';
+            statusText.className = 'text-warning';
+        }
+
+        if (waitingText) {
+            waitingText.textContent = 'This is taking longer than expected.';
+        }
+
+        if (loadingSection) loadingSection.style.display = 'none';
+        if (timeoutMessage) timeoutMessage.style.display = 'block';
+        if (troubleshooting) troubleshooting.style.display = 'block';
+
+        // Show specific timeout message
+        if (troubleshooting) {
+            const timeoutAlert = document.createElement('div');
+            timeoutAlert.className = 'alert alert-info mt-3';
+            timeoutAlert.innerHTML = `
+                <h6><i class="fas fa-info-circle me-2"></i>What to do next:</h6>
+                <ul class="mb-1">
+                    <li>Check if you received and completed the M-Pesa prompt on your phone</li>
+                    <li>Wait 5-10 minutes as payments can sometimes be delayed</li>
+                    <li>Use "Already Made Payment" on the homepage if payment was successful</li>
+                    <li>Contact support if issues persist</li>
+                </ul>
+            `;
+            troubleshooting.parentNode.insertBefore(timeoutAlert, troubleshooting);
+        }
+    }
+
+    function startPaymentChecking() {
+        console.log('🚀 Starting payment status checks for flow:', flow);
+        console.log('Check status URL:', checkStatusUrl);
+        console.log('Payment amount:', sessionAmount);
+
+        // Hide action buttons initially
+        if (actionButtons) {
+            actionButtons.style.display = 'none';
+        }
+
+        // Start immediate check
+        checkPaymentStatus();
+
+        // Set up interval for subsequent checks
+        checkInterval = setInterval(() => {
+            if (checkCount < maxChecks && !isChecking) {
+                checkPaymentStatus();
+            } else if (checkCount >= maxChecks) {
+                clearInterval(checkInterval);
+            }
+        }, 3000);
+    }
+
+    function setupEventListeners() {
         // Add manual check button functionality
         const debugLink = document.querySelector('a[href*="debug/payment-status"]');
         if (debugLink) {
@@ -188,16 +314,64 @@
             });
         }
 
-        // Start the payment status checks
-        checkPaymentStatus();
-    });
-
-    // Add keyboard shortcut for manual refresh
-    document.addEventListener('keydown', function (e) {
-        if (e.ctrlKey && e.key === 'r') {
-            e.preventDefault();
-            location.reload();
+        // Add refresh functionality
+        const retryButton = document.querySelector('a[href*="/payment/"]');
+        if (retryButton) {
+            retryButton.addEventListener('click', function (e) {
+                console.log('🔄 User requested payment retry');
+                // Let the link work normally
+            });
         }
+    }
+
+    function setupKeyboardShortcuts() {
+        // Add keyboard shortcut for manual refresh and debugging
+        document.addEventListener('keydown', function (e) {
+            // Ctrl/Cmd + R for refresh
+            if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+                e.preventDefault();
+                console.log('🔄 Manual refresh requested');
+                location.reload();
+            }
+
+            // F12 for debug info
+            if (e.key === 'F12') {
+                console.log('=== PAYMENT DEBUG INFO ===');
+                console.log('Flow:', flow);
+                console.log('Transaction Ref:', transactionRef);
+                console.log('Check Count:', checkCount);
+                console.log('Check URL:', checkStatusUrl);
+                console.log('Session amount:', sessionAmount);
+            }
+        });
+    }
+
+    function setupPageVisibilityHandler() {
+        // Handle page visibility changes (tab switching)
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden && checkCount > 0) {
+                console.log('📱 Page became visible, checking payment status...');
+                checkPaymentStatus();
+            }
+        });
+    }
+
+    // Initialize when page loads
+    document.addEventListener('DOMContentLoaded', function () {
+        // Initialize all DOM elements
+        initializeElements();
+
+        // Set up event listeners
+        setupEventListeners();
+
+        // Set up keyboard shortcuts
+        setupKeyboardShortcuts();
+
+        // Set up page visibility handler
+        setupPageVisibilityHandler();
+
+        // Start the payment status checks
+        startPaymentChecking();
     });
 </script>
 
@@ -205,38 +379,107 @@
     .spinner-border {
         width: 3rem;
         height: 3rem;
+        border-width: 0.3em;
     }
 
     .card-header.bg-warning {
         background: linear-gradient(135deg, #ffc107, #ffb300) !important;
+        border-bottom: none;
     }
 
     .alert-info {
         border-left: 4px solid #0dcaf0;
+        background-color: #f8f9fa;
     }
 
     .alert-success {
         border-left: 4px solid #198754;
+        background-color: #f8fff9;
     }
 
     .alert-danger {
         border-left: 4px solid #dc3545;
+        background-color: #fff8f8;
     }
 
     .alert-warning {
         border-left: 4px solid #ffc107;
+        background-color: #fffef0;
     }
 
     code {
         background: #f8f9fa;
-        padding: 2px 6px;
-        border-radius: 3px;
+        padding: 4px 8px;
+        border-radius: 4px;
         font-family: 'Courier New', monospace;
+        color: #e83e8c;
+        font-weight: bold;
     }
 
     .btn-sm {
-        padding: 0.25rem 0.5rem;
+        padding: 0.4rem 0.8rem;
         font-size: 0.875rem;
+    }
+
+    .btn {
+        transition: all 0.2s ease-in-out;
+    }
+
+    .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    #checkCountText {
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+
+    #loadingSection {
+        transition: all 0.3s ease-in-out;
+    }
+
+    .fas.fa-sync-alt {
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        from {
+            transform: rotate(0deg);
+        }
+
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .card {
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border: none;
+        border-radius: 10px;
+    }
+
+    .card-body {
+        padding: 2rem;
+    }
+
+    @media (max-width: 768px) {
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        .d-flex.gap-2 {
+            gap: 0.5rem !important;
+        }
+
+        .btn {
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+
+        .btn.me-2 {
+            margin-right: 0.5rem !important;
+        }
     }
 </style>
 {% endblock %}

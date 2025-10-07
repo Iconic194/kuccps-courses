@@ -139,6 +139,7 @@
 </head>
 
 <body>
+   
     <div class="main-wrapper">
 
         <!-- Hamburger Button - accessibility: aria-label, title, aria-controls, aria-expanded -->
@@ -167,11 +168,30 @@
 
         <!-- Main Content -->
         <div class="main-content container">
+            <!-- Alert for existing users -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else 'warning' if category == 'warning' else 'info' }} alert-dismissible fade show"
+                role="alert">
+                {{ message }}
+                {% if category == 'warning' %}
+                <div class="mt-2">
+                    <a href="#" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#verifyPaymentModal">
+                        <i class="fa fa-credit-card me-1"></i>Already Made Payment
+                    </a>
+                </div>
+                {% endif %}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+        
             {% block hero %}{% endblock %}
             {% block course_buttons %}{% endblock %}
             {% block content %}{% endblock %}
         </div>
-
         <!-- Footer -->
         <div class="footer">
             <p>&copy; 2025 All rights reserved. Designed by Hean Njuki.</p>

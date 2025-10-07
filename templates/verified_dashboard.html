@@ -74,4 +74,14 @@
         </div>
     </div>
 </div>
+<!-- In verified_dashboard.html -->
+<div class="alert alert-info">
+    <h6><i class="fa fa-info-circle me-2"></i>Your Paid Categories</h6>
+    <p class="mb-1">You have access to the following course categories:</p>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+        {% for level, data in user_courses.items() %}
+        <span class="badge bg-success">{{ level.upper() }} ({{ data.count }} courses)</span>
+        {% endfor %}
+    </div>
+</div>
 {% endblock %}

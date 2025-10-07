@@ -10,19 +10,25 @@
 
   <!-- Payment Modal -->
   <div class="modal fade" id="paymentModal" tabindex="-1" aria-labelledby="paymentModalLabel" role="dialog"
-    aria-modal="true">
+    aria-modal="true" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog">
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title" id="paymentModalLabel">Payment Required</h5>
         </div>
         <div class="modal-body">
-          <div class="payment-info mb-4">
-            <div class="alert alert-info">
-              <h6><i class="fas fa-info-circle"></i> Payment Required</h6>
-              <p class="mb-0">A small payment of <strong>Ksh 1</strong> is required to process your course qualification
-                results.</p>
-            </div>
+          <!-- Payment Information -->
+          <div class="alert alert-info mb-4">
+            <h6><i class="fa fa-info-circle me-2"></i>Payment Information</h6>
+            <p class="mb-1">Course Category: <strong>{{ flow.upper() }}</strong></p>
+            <p class="mb-1">Amount to pay: <strong>Ksh {{ amount }}</strong></p>
+            <p class="mb-0">
+              {% if is_first_category %}
+              First category price
+              {% else %}
+              Discounted price for additional category
+              {% endif %}
+            </p>
           </div>
 
           <form id="paymentForm">
@@ -30,8 +36,8 @@
               <label for="phoneNumber" class="form-label">Enter your M-Pesa phone number:</label>
               <div class="input-group">
                 <span class="input-group-text">+254</span>
-                <input type="tel" class="form-control" id="phoneNumber" name="phone" placeholder="7XX XXX XXX" required
-                  pattern="[0-9]{9}" maxlength="9">
+                <input type="tel" class="form-control" id="phoneNumber" name="phone" placeholder="712345678" required
+                  pattern="[0-9]{9}" maxlength="9" inputmode="numeric">
               </div>
               <div class="form-text">Enter your phone number without the country code (e.g., 712345678)</div>
             </div>
@@ -41,18 +47,18 @@
                 <div class="card-body">
                   <h6>Payment Details:</h6>
                   <ul class="list-unstyled small">
-                    <li><strong>Amount:</strong> Ksh 1</li>
+                    <li><strong>Amount:</strong> Ksh {{ amount }}</li>
                     <li><strong>Paybill:</strong> 4185095</li>
-                    <li><strong>Account:</strong> Your KCSE Index Number</li>
+                    <li><strong>Account:</strong> {{ session.get('index_number', 'Your KCSE Index Number') }}</li>
                   </ul>
                 </div>
               </div>
             </div>
 
             <div class="d-flex justify-content-between align-items-center">
-              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancelButton">Cancel</button>
               <button type="submit" class="btn btn-primary" id="payButton">
-                <span id="payButtonText">Pay Ksh 1</span>
+                <span id="payButtonText">Pay Ksh {{ amount }}</span>
                 <span id="payButtonSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
               </button>
             </div>
@@ -70,122 +76,234 @@
                 <span class="visually-hidden">Waiting for payment...</span>
               </div>
               <p class="mt-2">Waiting for payment confirmation...</p>
+              <p class="small text-muted">This may take a few moments. Please do not close this window.</p>
             </div>
+          </div>
+
+          <!-- Error Message Section -->
+          <div id="paymentError" class="alert alert-danger mt-3" style="display: none;">
+            <h6><i class="fas fa-exclamation-triangle"></i> Payment Error</h6>
+            <p id="errorMessage" class="mb-0"></p>
           </div>
         </div>
       </div>
     </div>
   </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
-  // Auto-open the modal on page load
-  window.onload = function () {
-    document.getElementById('openPaymentModal').click();
-  };
+  document.addEventListener('DOMContentLoaded', function () {
+    console.log('Payment page loaded');
 
-  // Handle payment form submission
-  document.getElementById('paymentForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-
-    var phone = document.getElementById('phoneNumber').value;
-    var flow = "{{ flow }}";
-    var payButton = document.getElementById('payButton');
-    var payButtonText = document.getElementById('payButtonText');
-    var payButtonSpinner = document.getElementById('payButtonSpinner');
-
-    // Validate phone number
-    if (!phone || phone.length !== 9 || !/^[0-9]+$/.test(phone)) {
-      alert('Please enter a valid 9-digit phone number (e.g., 712345678)');
-      return;
+    // Auto-open the modal on page load
+    const openModalButton = document.getElementById('openPaymentModal');
+    if (openModalButton) {
+      console.log('Opening payment modal...');
+      openModalButton.click();
+    } else {
+      console.error('Open modal button not found');
     }
 
-    // Format phone to 254 format
-    var formattedPhone = '254' + phone;
+    // Initialize phone number input formatting
+    const phoneInput = document.getElementById('phoneNumber');
+    if (phoneInput) {
+      phoneInput.addEventListener('input', function (e) {
+        let value = e.target.value.replace(/\D/g, '');
+        if (value.length > 9) {
+          value = value.substring(0, 9);
+        }
+        e.target.value = value;
+      });
 
-    // Show loading state
-    payButton.disabled = true;
-    payButtonText.textContent = 'Processing...';
-    payButtonSpinner.classList.remove('d-none');
+      // Focus on phone input when modal opens
+      const paymentModal = document.getElementById('paymentModal');
+      if (paymentModal) {
+        paymentModal.addEventListener('shown.bs.modal', function () {
+          phoneInput.focus();
+        });
+      }
+    }
 
-    // Initiate payment
-    fetch(`/payment/${flow}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      body: `phone=${formattedPhone}`
-    })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          // Show payment status section
-          document.getElementById('paymentForm').style.display = 'none';
-          document.getElementById('paymentStatus').style.display = 'block';
+    // Handle payment form submission
+    const paymentForm = document.getElementById('paymentForm');
+    if (paymentForm) {
+      paymentForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        console.log('Payment form submitted');
 
-          // Update transaction reference
-          if (data.transaction_ref) {
-            document.getElementById('transactionRef').textContent = data.transaction_ref;
+        const phone = document.getElementById('phoneNumber').value;
+        const flow = "{{ flow }}";
+        const payButton = document.getElementById('payButton');
+        const payButtonText = document.getElementById('payButtonText');
+        const payButtonSpinner = document.getElementById('payButtonSpinner');
+        const errorDiv = document.getElementById('paymentError');
+
+        // Hide any previous errors
+        if (errorDiv) {
+          errorDiv.style.display = 'none';
+        }
+
+        // Validate phone number
+        if (!phone || phone.length !== 9 || !/^[0-9]+$/.test(phone)) {
+          showError('Please enter a valid 9-digit phone number (e.g., 712345678)');
+          return;
+        }
+
+        // Format phone to 254 format
+        const formattedPhone = '254' + phone;
+        console.log('Formatted phone:', formattedPhone);
+
+        // Show loading state
+        payButton.disabled = true;
+        payButtonText.textContent = 'Processing...';
+        payButtonSpinner.classList.remove('d-none');
+
+        // Initiate payment
+        fetch(`/payment/${flow}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: `phone=${formattedPhone}`
+        })
+          .then(response => {
+            console.log('Response status:', response.status);
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            console.log('Payment response:', data);
+
+            if (data.success) {
+              // Show payment status section
+              document.getElementById('paymentForm').style.display = 'none';
+              document.getElementById('paymentStatus').style.display = 'block';
+
+              // Update transaction reference
+              if (data.transaction_ref) {
+                document.getElementById('transactionRef').textContent = data.transaction_ref;
+              }
+
+              // Start polling for payment confirmation
+              console.log('Starting payment status polling...');
+              pollPaymentStatus(flow, data.transaction_ref);
+            } else {
+              // Show error from server
+              showError(data.error || 'Failed to initiate payment. Please try again.');
+              resetPaymentButton();
+            }
+          })
+          .catch(error => {
+            console.error('Payment fetch error:', error);
+            showError('Network error. Please check your connection and try again.');
+            resetPaymentButton();
+          });
+      });
+    }
+
+    function showError(message) {
+      const errorDiv = document.getElementById('paymentError');
+      const errorMessage = document.getElementById('errorMessage');
+      if (errorDiv && errorMessage) {
+        errorMessage.textContent = message;
+        errorDiv.style.display = 'block';
+
+        // Scroll to error
+        errorDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        alert(message); // Fallback
+      }
+    }
+
+    function resetPaymentButton() {
+      const payButton = document.getElementById('payButton');
+      const payButtonText = document.getElementById('payButtonText');
+      const payButtonSpinner = document.getElementById('payButtonSpinner');
+
+      if (payButton && payButtonText && payButtonSpinner) {
+        payButton.disabled = false;
+        payButtonText.textContent = `Pay Ksh {{ amount }}`;
+        payButtonSpinner.classList.add('d-none');
+      }
+    }
+
+    let pollCount = 0;
+    const maxPollCount = 60; // 3 minutes (60 * 3 seconds)
+
+    function pollPaymentStatus(flow, transactionRef) {
+      pollCount++;
+      console.log(`Polling payment status (attempt ${pollCount}/${maxPollCount}) for:`, transactionRef);
+
+      fetch(`/check-payment-status/${flow}`)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
           }
+          return response.json();
+        })
+        .then(data => {
+          console.log('Payment status response:', data);
 
-          // Start polling for payment confirmation
-          pollPaymentStatus(flow, data.transaction_ref);
-        } else {
-          // Show error
-          alert(data.error || 'Failed to initiate payment. Please try again.');
-          resetPaymentButton();
-        }
-      })
-      .catch(error => {
-        console.error('Payment error:', error);
-        alert('Network error. Please check your connection and try again.');
-        resetPaymentButton();
-      });
-  });
+          if (data.paid) {
+            // Payment confirmed, redirect to results
+            console.log('Payment confirmed, redirecting...');
+            const redirectUrl = data.redirect_url || `/results/${flow}`;
+            window.location.href = redirectUrl;
+          } else if (pollCount < maxPollCount) {
+            // Continue polling every 3 seconds
+            setTimeout(() => pollPaymentStatus(flow, transactionRef), 3000);
+          } else {
+            // Timeout reached
+            console.log('Payment polling timeout reached');
+            showError('Payment is taking longer than expected. Please check your phone for the M-Pesa prompt or try again.');
+            resetPaymentButton();
 
-  function resetPaymentButton() {
-    var payButton = document.getElementById('payButton');
-    var payButtonText = document.getElementById('payButtonText');
-    var payButtonSpinner = document.getElementById('payButtonSpinner');
+            // Show the form again
+            document.getElementById('paymentForm').style.display = 'block';
+            document.getElementById('paymentStatus').style.display = 'none';
+          }
+        })
+        .catch(error => {
+          console.error('Polling error:', error);
 
-    payButton.disabled = false;
-    payButtonText.textContent = 'Pay Ksh 1';
-    payButtonSpinner.classList.add('d-none');
-  }
+          if (pollCount < maxPollCount) {
+            // Continue polling even if there's an error
+            setTimeout(() => pollPaymentStatus(flow, transactionRef), 3000);
+          } else {
+            showError('Unable to verify payment status. Please check if payment was successful and try again.');
+            resetPaymentButton();
 
-  function pollPaymentStatus(flow, transactionRef) {
-    console.log('Polling payment status for:', transactionRef);
-
-    fetch(`/check-payment-status/${flow}`)
-      .then(response => response.json())
-      .then(data => {
-        if (data.paid) {
-          // Payment confirmed, redirect to results
-          window.location.href = data.redirect_url || `/results/${flow}`;
-        } else {
-          // Continue polling every 3 seconds
-          setTimeout(function () {
-            pollPaymentStatus(flow, transactionRef);
-          }, 3000);
-        }
-      })
-      .catch(error => {
-        console.error('Polling error:', error);
-        // Continue polling even if there's an error
-        setTimeout(function () {
-          pollPaymentStatus(flow, transactionRef);
-        }, 3000);
-      });
-  }
-
-  // Optional: Add input formatting for phone number
-  document.getElementById('phoneNumber').addEventListener('input', function (e) {
-    var value = e.target.value.replace(/\D/g, '');
-    if (value.length > 9) {
-      value = value.substring(0, 9);
+            // Show the form again
+            document.getElementById('paymentForm').style.display = 'block';
+            document.getElementById('paymentStatus').style.display = 'none';
+          }
+        });
     }
-    e.target.value = value;
+
+    // Handle modal close
+    const cancelButton = document.getElementById('cancelButton');
+    if (cancelButton) {
+      cancelButton.addEventListener('click', function () {
+        console.log('Payment cancelled by user');
+        // You might want to redirect to previous page or show a message
+      });
+    }
+
+    // Prevent modal from closing when payment is processing
+    const paymentModal = document.getElementById('paymentModal');
+    if (paymentModal) {
+      paymentModal.addEventListener('hide.bs.modal', function (e) {
+        const paymentStatus = document.getElementById('paymentStatus');
+        if (paymentStatus && paymentStatus.style.display !== 'none') {
+          e.preventDefault();
+          alert('Please wait for payment processing to complete or cancel the payment first.');
+        }
+      });
+    }
   });
 </script>
 
@@ -211,9 +329,22 @@
     border-left: 4px solid #ffc107;
   }
 
+  #paymentError {
+    border-left: 4px solid #dc3545;
+  }
+
   .spinner-border {
     width: 2rem;
     height: 2rem;
+  }
+
+  .modal-backdrop {
+    opacity: 0.5 !important;
+  }
+
+  /* Ensure modal is properly displayed */
+  .modal {
+    z-index: 1060;
   }
 </style>
 {% endblock %}

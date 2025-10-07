@@ -9,6 +9,7 @@ from bson import ObjectId
 import requests
 from requests.auth import HTTPBasicAuth
 import json
+import re
 
 # --- Configuration and Setup ---
 load_dotenv()
@@ -371,7 +372,7 @@ def get_qualifying_artisan_courses(user_grades, user_mean_grade):
     return qualifying_courses
 
 # --- Database Operations ---
-def save_user_payment(email, index_number, level, transaction_ref=None):
+def save_user_payment(email, index_number, level, transaction_ref=None, amount=1):
     """Save user payment information to payments collection"""
     if not database_connected:
         session_key = f'{level}_payment_{index_number}'
@@ -380,6 +381,7 @@ def save_user_payment(email, index_number, level, transaction_ref=None):
             'index_number': index_number,
             'level': level,
             'transaction_ref': transaction_ref,
+            'payment_amount': amount,
             'payment_confirmed': False,
             'created_at': datetime.now().isoformat()
         }
@@ -390,6 +392,7 @@ def save_user_payment(email, index_number, level, transaction_ref=None):
         'index_number': index_number,
         'level': level,
         'transaction_ref': transaction_ref,
+        'payment_amount': amount,
         'payment_confirmed': False,
         'created_at': datetime.now()
     }
@@ -400,7 +403,7 @@ def save_user_payment(email, index_number, level, transaction_ref=None):
             {'$set': payment_record},
             upsert=True
         )
-        print(f"✅ Payment record saved for {email}")
+        print(f"✅ Payment record saved for {email}, amount: {amount}")
     except Exception as e:
         print(f"❌ Error saving user payment: {str(e)}")
         session_key = f'{level}_payment_{index_number}'
@@ -486,6 +489,35 @@ def get_user_payment(email, index_number, level):
     session_key = f'{level}_payment_{index_number}'
     return session.get(session_key)
 
+def check_existing_user_data(email, index_number):
+    """Check if user details already exist in the database"""
+    if not database_connected:
+        return False
+        
+    try:
+        # Check if user has any payment records
+        existing_payments = user_payments_collection.find_one({
+            '$or': [
+                {'email': email},
+                {'index_number': index_number}
+            ],
+            'payment_confirmed': True
+        })
+        
+        # Check if user has any course records
+        existing_courses = user_courses_collection.find_one({
+            '$or': [
+                {'email': email},
+                {'index_number': index_number}
+            ]
+        })
+        
+        return existing_payments is not None or existing_courses is not None
+        
+    except Exception as e:
+        print(f"❌ Error checking existing user data: {str(e)}")
+        return False
+
 def get_user_courses_data(email, index_number, level):
     """Get user courses from database with fallback to session"""
     if database_connected:
@@ -512,6 +544,12 @@ def mark_payment_confirmed(transaction_ref, mpesa_receipt=None):
                 session[key]['payment_confirmed'] = True
                 session[key]['mpesa_receipt'] = mpesa_receipt
                 session[key]['payment_date'] = datetime.now().isoformat()
+                
+                # Also mark the category as paid in session
+                level = session[key].get('level')
+                if level:
+                    session[f'paid_{level}'] = True
+                
                 payment_found = True
                 break
         return payment_found
@@ -580,20 +618,29 @@ def get_mpesa_access_token():
             timeout=30
         )
         
+        if response.status_code != 200:
+            print(f"❌ MPesa OAuth failed with status: {response.status_code}")
+            return None
+            
         resp_json = response.json()
         access_token = resp_json.get('access_token')
         
         if not access_token:
-            raise Exception('No access_token in MPesa OAuth response')
+            print('❌ No access_token in MPesa OAuth response')
+            return None
             
+        print("✅ MPesa access token obtained successfully")
         return access_token
         
     except Exception as e:
         print('❌ MPesa OAuth error:', str(e))
-        raise
+        return None
 
 def initiate_stk_push(phone, amount=1):
     """Initiate MPesa STK push payment"""
+    print(f"📱 Initiating STK push for phone: {phone}, amount: {amount}")
+    
+    # Format phone number
     if phone.startswith('0') and len(phone) == 10:
         phone = '254' + phone[1:]
     elif phone.startswith('+254') and len(phone) == 13:
@@ -601,10 +648,12 @@ def initiate_stk_push(phone, amount=1):
     elif len(phone) == 9:
         phone = '254' + phone
     
+    print(f"📞 Formatted phone: {phone}")
+    
     try:
         access_token = get_mpesa_access_token()
         if not access_token:
-            return {'error': 'No access token received'}
+            return {'error': 'Failed to get MPesa access token'}
             
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
         business_short_code = MPESA_SHORTCODE
@@ -619,6 +668,7 @@ def initiate_stk_push(phone, amount=1):
         
         index_number = session.get('index_number', 'KUCCPS')
         
+        # Use the actual callback URL for your deployed app
         base_url = 'https://kuccps-courses.onrender.com'
         payload = {
             "BusinessShortCode": business_short_code,
@@ -631,8 +681,11 @@ def initiate_stk_push(phone, amount=1):
             "PhoneNumber": phone,
             "CallBackURL": f"{base_url}/mpesa/callback",
             "AccountReference": index_number,
-            "TransactionDesc": "Course Qualification Results - Ksh 1"
+            "TransactionDesc": f"Course Qualification - Ksh {amount}"
         }
+        
+        print(f"📤 Sending STK push request to MPesa...")
+        print(f"Payload: {json.dumps(payload, indent=2)}")
         
         response = requests.post(
             "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
@@ -641,11 +694,112 @@ def initiate_stk_push(phone, amount=1):
             timeout=30
         )
         
-        return response.json()
+        print(f"📥 MPesa response status: {response.status_code}")
+        print(f"📥 MPesa response: {response.text}")
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result
+        else:
+            return {'error': f'MPesa API returned status {response.status_code}', 'details': response.text}
         
     except Exception as e:
-        print(f"Error initiating STK push: {str(e)}")
+        print(f"❌ Error initiating STK push: {str(e)}")
         return {'error': str(e)}
+
+# --- Pricing and Category Management Functions ---
+def has_user_paid_for_category(email, index_number, category):
+    """Check if user has already paid for a specific category"""
+    if not database_connected:
+        # Check session for this specific category
+        session_key = f'paid_{category}'
+        return session.get(session_key) or False
+    
+    try:
+        # Check database for this specific category payment
+        payment_data = user_payments_collection.find_one({
+            '$or': [
+                {'email': email},
+                {'index_number': index_number}
+            ],
+            'level': category,
+            'payment_confirmed': True
+        })
+        
+        return payment_data is not None
+        
+    except Exception as e:
+        print(f"❌ Error checking category payment: {str(e)}")
+        return False
+
+def get_user_paid_categories(email, index_number):
+    """Get list of course levels that user has already paid for"""
+    paid_categories = []
+    
+    if not database_connected:
+        # Check session for paid categories
+        for level in ['degree', 'diploma', 'certificate', 'artisan', 'kmtc']:
+            if session.get(f'paid_{level}'):
+                paid_categories.append(level)
+        return paid_categories
+    
+    try:
+        # Check database for paid categories
+        paid_payments = user_payments_collection.find({
+            '$or': [
+                {'email': email},
+                {'index_number': index_number}
+            ],
+            'payment_confirmed': True
+        })
+        
+        for payment in paid_payments:
+            level = payment.get('level')
+            if level and level not in paid_categories:
+                paid_categories.append(level)
+                
+    except Exception as e:
+        print(f"❌ Error getting user paid categories: {str(e)}")
+    
+    return paid_categories
+
+def get_user_existing_data(email, index_number):
+    """Get all existing user data including payments and courses"""
+    user_data = {
+        'payments': [],
+        'courses': [],
+        'paid_categories': []
+    }
+    
+    if not database_connected:
+        return user_data
+    
+    try:
+        # Get payment records
+        payments = user_payments_collection.find({
+            '$or': [
+                {'email': email},
+                {'index_number': index_number}
+            ]
+        })
+        user_data['payments'] = list(payments)
+        
+        # Get course records
+        courses = user_courses_collection.find({
+            '$or': [
+                {'email': email},
+                {'index_number': index_number}
+            ]
+        })
+        user_data['courses'] = list(courses)
+        
+        # Get paid categories
+        user_data['paid_categories'] = get_user_paid_categories(email, index_number)
+        
+    except Exception as e:
+        print(f"❌ Error getting user existing data: {str(e)}")
+    
+    return user_data
 
 # --- Routes ---
 @app.route('/')
@@ -825,18 +979,43 @@ def enter_details(flow):
             return redirect(url_for(flow))
         return render_template('enter_details.html', flow=flow)
     
-    email = request.form.get('email', '').strip()
+    email = request.form.get('email', '').strip().lower()
     index_number = request.form.get('index_number', '').strip()
     
     if not email or not index_number:
         flash("Email and KCSE Index Number are required.", "error")
         return redirect(url_for('enter_details', flow=flow))
     
+    # Validate index number format
+    if not re.match(r'^\d{11}/\d{4}$', index_number):
+        flash("Invalid index number format. Must be 11 digits, slash, 4 digits (e.g., 12345678901/2024)", "error")
+        return redirect(url_for('enter_details', flow=flow))
+    
+    # Check if user has already paid for this SPECIFIC category
+    if has_user_paid_for_category(email, index_number, flow):
+        flash(f"You have already paid for {flow.upper()} courses. Please use 'Already Made Payment' to view your results.", "warning")
+        return redirect(url_for('index'))
+    
+    # Check if user already has any paid categories to determine pricing
+    existing_categories = get_user_paid_categories(email, index_number)
+    is_first_category = len(existing_categories) == 0
+    amount = 2 if is_first_category else 1
+    
+    # Store in session
     session['email'] = email
     session['index_number'] = index_number
     session['current_flow'] = flow
+    session['payment_amount'] = amount
+    session['is_first_category'] = is_first_category
     
-    save_user_payment(email, index_number, flow)
+    # Save initial payment record with amount
+    save_user_payment(email, index_number, flow, amount=amount)
+    
+    # Show pricing information
+    if is_first_category:
+        flash(f"First category price: Ksh {amount}", "info")
+    else:
+        flash(f"Additional category price: Ksh {amount} (you already have {len(existing_categories)} paid categories)", "info")
     
     return redirect(url_for('payment', flow=flow))
 
@@ -854,13 +1033,27 @@ def payment(flow):
         if not session.get('email') or not session.get('index_number'):
             flash("Please enter your details first", "error")
             return redirect(url_for('enter_details', flow=flow))
-        return render_template('payment.html', flow=flow)
+        
+        # Get the amount from session
+        amount = session.get('payment_amount', 1)
+        is_first_category = session.get('is_first_category', False)
+        
+        return render_template('payment.html', 
+                             flow=flow, 
+                             amount=amount, 
+                             is_first_category=is_first_category)
 
     phone = request.form.get('phone', '').strip()
     if not phone:
         return {'success': False, 'error': 'Phone number is required for payment.'}, 400
 
-    result = initiate_stk_push(phone, amount=1)
+    # Get the dynamic amount from session
+    amount = session.get('payment_amount', 1)
+    
+    print(f"💳 Processing payment for {flow}, amount: {amount}, phone: {phone}")
+    
+    result = initiate_stk_push(phone, amount=amount)
+    
     if result.get('ResponseCode') == '0':
         transaction_ref = result.get('CheckoutRequestID')
         email = session.get('email')
@@ -873,6 +1066,7 @@ def payment(flow):
             'success': True,
             'ResponseCode': '0', 
             'transaction_ref': transaction_ref,
+            'amount': amount,
             'redirect_url': url_for('payment_wait', flow=flow)
         }
 
@@ -928,6 +1122,7 @@ def check_payment_status(flow):
 def mpesa_callback():
     try:
         data = request.get_json(force=True)
+        print(f"📥 MPesa callback received: {json.dumps(data, indent=2)}")
         
         callback_metadata = data.get('Body', {}).get('stkCallback', {})
         transaction_ref = callback_metadata.get('CheckoutRequestID')
@@ -943,10 +1138,13 @@ def mpesa_callback():
         if transaction_ref and result_code == 0 and mpesa_receipt:
             result = mark_payment_confirmed(transaction_ref, mpesa_receipt)
             if result:
+                print(f"✅ Payment callback processed successfully: {transaction_ref}")
                 return {'success': True}, 200
             else:
+                print(f"❌ Failed to mark payment confirmed: {transaction_ref}")
                 return {'success': False}, 400
         else:
+            print(f"❌ Invalid callback data: {data}")
             return {'success': False}, 400
             
     except Exception as e:
@@ -1108,6 +1306,8 @@ def show_collection_courses(flow, collection_name):
                          courses=collection_courses,
                          email=email,
                          index_number=index_number)
+
+# --- Payment Verification Routes ---
 @app.route('/verify-payment', methods=['POST'])
 def verify_payment():
     """Verify payment and return course information for all levels"""
@@ -1123,22 +1323,27 @@ def verify_payment():
             return jsonify({'success': False, 'error': 'Invalid M-Pesa receipt format. Must be 10 alphanumeric characters.'})
         
         # Validate index number format
-        import re
         if not re.match(r'^\d{11}/\d{4}$', index_number):
             return jsonify({'success': False, 'error': 'Invalid index number format. Must be 11 digits, slash, 4 digits (e.g., 12345678901/2024)'})
         
         print(f"🔍 Verifying payment for index: {index_number}, receipt: {mpesa_receipt}")
         
-        # SIMPLE CHECK: Find any confirmed payment for this index number and receipt
+        # Find confirmed payments for this index number and receipt
         payment_found = False
+        paid_categories = []
         
         if database_connected:
-            payment_data = user_payments_collection.find_one({
+            payment_data = user_payments_collection.find({
                 'index_number': index_number,
                 'mpesa_receipt': mpesa_receipt,
                 'payment_confirmed': True
             })
-            payment_found = payment_data is not None
+            
+            for payment in payment_data:
+                payment_found = True
+                level = payment.get('level')
+                if level and level not in paid_categories:
+                    paid_categories.append(level)
         else:
             # Session fallback
             for key in session:
@@ -1148,47 +1353,45 @@ def verify_payment():
                         payment_data.get('mpesa_receipt') == mpesa_receipt and
                         payment_data.get('payment_confirmed')):
                         payment_found = True
-                        break
+                        level = payment_data.get('level')
+                        if level and level not in paid_categories:
+                            paid_categories.append(level)
         
         if not payment_found:
             print(f"❌ No confirmed payment found for index: {index_number}, receipt: {mpesa_receipt}")
             return jsonify({'success': False, 'error': 'No confirmed payment found with these details. Please ensure payment was successful and try again.'})
         
-        print(f"✅ Payment confirmed for index: {index_number}")
+        print(f"✅ Payment confirmed for index: {index_number}, categories: {paid_categories}")
         
-        # Get ALL courses for this user across ALL levels
+        # Get courses for all paid categories
         user_courses = {}
-        course_levels = []
         total_courses = 0
         
         if database_connected:
-            levels = ['degree', 'diploma', 'certificate', 'artisan', 'kmtc']
-            for level in levels:
+            for level in paid_categories:
                 courses_data = user_courses_collection.find_one({
                     'index_number': index_number,
                     'level': level
                 })
                 if courses_data and courses_data.get('courses'):
-                    # Simple course count - we don't need the actual course data here
                     course_count = len(courses_data['courses'])
                     user_courses[level] = {
                         'count': course_count
                     }
-                    course_levels.append(level)
                     total_courses += course_count
                     print(f"📚 Found {course_count} {level} courses")
         
         if total_courses == 0:
             return jsonify({'success': False, 'error': 'No course results found for your payment. Please ensure you completed the qualification process.'})
         
-        print(f"🎓 Total courses found: {total_courses} across {len(course_levels)} levels")
+        print(f"🎓 Total courses found: {total_courses} across {len(paid_categories)} categories")
         
-        # Return simple success response with redirect URL
+        # Return success response with available categories
         return jsonify({
             'success': True,
             'payment_confirmed': True,
             'courses_count': total_courses,
-            'levels': course_levels,
+            'levels': paid_categories,
             'level_details': user_courses,
             'redirect_url': url_for('verified_results_dashboard', index=index_number, receipt=mpesa_receipt)
         })
@@ -1198,6 +1401,7 @@ def verify_payment():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': 'Internal server error. Please try again later.'})
+
 @app.route('/verified-dashboard')
 def verified_results_dashboard():
     """Dashboard showing all available course levels for verified payment"""
@@ -1246,6 +1450,7 @@ def verified_results_dashboard():
                          index_number=index_number,
                          receipt=receipt,
                          total_courses=total_courses)
+
 @app.route('/verified-results/<level>')
 def show_verified_level_results(level):
     """Show verified results for a specific course level"""
@@ -1301,62 +1506,6 @@ def show_verified_level_results(level):
                          email=f"verified_{index_number}@temp.com", 
                          index_number=index_number,
                          flow=level)
-@app.route('/debug/verify-test')
-def debug_verify_test():
-    """Test endpoint to verify the verification flow"""
-    if database_connected:
-        # Check recent payments
-        recent_payments = list(user_payments_collection.find().sort('created_at', -1).limit(5))
-        recent_courses = list(user_courses_collection.find().sort('created_at', -1).limit(5))
-        
-        return jsonify({
-            'recent_payments': [
-                {
-                    'index_number': p.get('index_number'),
-                    'mpesa_receipt': p.get('mpesa_receipt'),
-                    'transaction_ref': p.get('transaction_ref'),
-                    'payment_confirmed': p.get('payment_confirmed'),
-                    'level': p.get('level')
-                } for p in recent_payments
-            ],
-            'recent_courses': [
-                {
-                    'index_number': c.get('index_number'),
-                    'level': c.get('level'),
-                    'course_count': len(c.get('courses', [])),
-                    'has_courses': bool(c.get('courses'))
-                } for c in recent_courses
-            ]
-        })
-    else:
-        return jsonify({'error': 'Database not connected'})
-
-@app.route('/verified-results')
-def show_verified_results():
-    """Show verified results page"""
-    index_number = request.args.get('index')
-    receipt = request.args.get('receipt')
-    
-    if not index_number or not receipt:
-        flash("Invalid verification parameters", "error")
-        return redirect(url_for('index'))
-    
-    # Get all courses for this user
-    user_courses = {}
-    if database_connected:
-        levels = ['degree', 'diploma', 'certificate', 'artisan', 'kmtc']
-        for level in levels:
-            courses_data = user_courses_collection.find_one({
-                'index_number': index_number,
-                'level': level
-            })
-            if courses_data and courses_data.get('courses'):
-                user_courses[level] = courses_data['courses']
-    
-    return render_template('verified_results.html', 
-                         user_courses=user_courses,
-                         index_number=index_number,
-                         receipt=receipt)
 
 # --- Debug and Testing Routes ---
 @app.route('/debug/database')
