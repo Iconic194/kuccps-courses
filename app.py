@@ -32,6 +32,28 @@ GRADE_VALUES = {
     'A': 12, 'A-': 11, 'B+': 10, 'B': 9, 'B-': 8, 'C+': 7, 'C': 6, 'C-': 5,
     'D+': 4, 'D': 3, 'D-': 2, 'E': 1
 }
+CLUSTER_NAMES = {
+    'cluster_1': 'Law',
+    'cluster_2': 'Business, Hospitality & Related',
+    'cluster_3': 'Social Sciences, Media Studies, Fine Arts, Film, Animation, Graphics & Related',
+    'cluster_4': 'Geosciences & Related',
+    'cluster_5': 'Engineering, Engineering Technology & Related',
+    'cluster_6': 'Architecture, Building Construction & Related',
+    'cluster_7': 'Computing, IT & Related',
+    'cluster_8': 'Agribusiness & Related',
+    'cluster_9': 'General Science, Biological Sciences, Physics, Chemistry & Related',
+    'cluster_10': 'Actuarial Science, Accountancy, Mathematics, Economics, Statistics & Related',
+    'cluster_11': 'Interior Design, Fashion Design, Textiles & Related',
+    'cluster_12': 'Sport Science & Related',
+    'cluster_13': 'Medicine, Health, Veterinary Medicine & Related',
+    'cluster_14': 'History, Archeology & Related',
+    'cluster_15': 'Agriculture, Animal Health, Food Science, Nutrition Dietetics, Environmental Sciences, Natural Resources & Related',
+    'cluster_16': 'Geography & Related',
+    'cluster_17': 'French & German',
+    'cluster_18': 'Music & Related',
+    'cluster_19': 'Education & Related',
+    'cluster_20': 'Religious Studies, Theology, Islamic Studies & Related'
+}
 
 CLUSTERS = [f"cluster_{i}" for i in range(1, 21)]
 
@@ -525,7 +547,15 @@ def get_user_courses_data(email, index_number, level):
             courses_data = user_courses_collection.find_one(
                 {'email': email, 'index_number': index_number, 'level': level}
             )
-            if courses_data:
+            if courses_data and 'courses' in courses_data:
+                # Convert ObjectId to string for courses
+                converted_courses = []
+                for course in courses_data['courses']:
+                    course_dict = dict(course)
+                    if '_id' in course_dict and isinstance(course_dict['_id'], ObjectId):
+                        course_dict['_id'] = str(course_dict['_id'])
+                    converted_courses.append(course_dict)
+                courses_data['courses'] = converted_courses
                 return courses_data
         except Exception as e:
             print(f"❌ Error getting user courses from database: {str(e)}")
@@ -1190,6 +1220,10 @@ def show_results(flow):
         flash('Payment not confirmed yet. Please wait or contact support.', 'error')
         return redirect(url_for('payment_wait', flow=flow))
 
+    # Store the current flow for basket redirects
+    session['current_flow'] = flow
+    print(f"🔗 Stored current flow: {flow}")
+
     qualifying_courses = []
     user_grades = {}
     user_mean_grade = None
@@ -1225,20 +1259,41 @@ def show_results(flow):
             flash("Invalid flow type", "error")
             return redirect(url_for('index'))
 
+        # Convert ObjectId to string for JSON serialization in template
+        converted_courses = []
+        for course in qualifying_courses:
+            course_dict = dict(course)
+            if '_id' in course_dict and isinstance(course_dict['_id'], ObjectId):
+                course_dict['_id'] = str(course_dict['_id'])
+            converted_courses.append(course_dict)
+        qualifying_courses = converted_courses
+
         # Save courses to database/session
         save_user_courses(email, index_number, flow, qualifying_courses)
         
-        # Group courses by collection
+        # Group courses by collection with proper names
         courses_by_collection = {}
         for course in qualifying_courses:
             if flow == 'degree':
-                collection_name = course.get('cluster', 'Other')
+                collection_key = course.get('cluster', 'Other')
+                # Use the proper cluster name for display
+                collection_name = CLUSTER_NAMES.get(collection_key, collection_key)
             else:
-                collection_name = course.get('collection', 'Other')
+                collection_key = course.get('collection', 'Other')
+                collection_name = collection_key.replace('_', ' ').title()
             
-            if collection_name not in courses_by_collection:
-                courses_by_collection[collection_name] = []
-            courses_by_collection[collection_name].append(course)
+            if collection_key not in courses_by_collection:
+                courses_by_collection[collection_key] = {
+                    'name': collection_name,
+                    'courses': []
+                }
+            courses_by_collection[collection_key]['courses'].append(course)
+
+        # Load user's existing basket from database
+        if email and index_number:
+            existing_basket = get_user_basket_by_index(index_number)
+            if existing_basket:
+                session['course_basket'] = existing_basket
         
         return render_template('collection_results.html', 
                              courses=qualifying_courses,
@@ -1249,7 +1304,8 @@ def show_results(flow):
                              subjects=SUBJECTS, 
                              email=email, 
                              index_number=index_number,
-                             flow=flow)
+                             flow=flow,
+                             cluster_names=CLUSTER_NAMES)  # Ensure this is passed
                              
     except Exception as e:
         print(f"❌ Error in show_results: {str(e)}")
@@ -1440,16 +1496,24 @@ def verified_results_dashboard():
     
     print(f"🎓 Dashboard ready with {total_courses} total courses")
     
-    # Store verification in session for individual level access
+    # Store verification in session
     session['verified_payment'] = True
     session['verified_index'] = index_number
     session['verified_receipt'] = receipt
+    session['email'] = f"verified_{index_number}@temp.com"
+    session['index_number'] = index_number
+    
+    # Load user's saved basket from database
+    basket = get_user_basket_by_index(index_number)
+    session['course_basket'] = basket
     
     return render_template('verified_dashboard.html',
                          user_courses=user_courses,
                          index_number=index_number,
                          receipt=receipt,
-                         total_courses=total_courses)
+                         total_courses=total_courses,
+                         basket_count=len(basket))
+
 
 @app.route('/verified-results/<level>')
 def show_verified_level_results(level):
@@ -1467,6 +1531,10 @@ def show_verified_level_results(level):
     
     print(f"🎓 Loading {level} courses for index: {index_number}")
     
+    # Store the current level for basket redirects
+    session['current_level'] = level
+    print(f"🔗 Stored current level for verified user: {level}")
+    
     # Get courses for the specific level
     courses_data = None
     if database_connected:
@@ -1479,22 +1547,39 @@ def show_verified_level_results(level):
         flash(f"No {level} course results found for your payment details", "error")
         return redirect(url_for('verified_results_dashboard', index=index_number, receipt=receipt))
     
-    # Render directly instead of redirecting
-    qualifying_courses = courses_data['courses']
+    # Convert ObjectId to string for JSON serialization
+    qualifying_courses = []
+    for course in courses_data['courses']:
+        course_dict = dict(course)
+        # Convert _id from ObjectId to string if it exists
+        if '_id' in course_dict and isinstance(course_dict['_id'], ObjectId):
+            course_dict['_id'] = str(course_dict['_id'])
+        qualifying_courses.append(course_dict)
     
-    # Group courses by collection
+    # Group courses by collection with proper names
     courses_by_collection = {}
     for course in qualifying_courses:
         if level == 'degree':
-            collection_name = course.get('cluster', 'Other')
+            collection_key = course.get('cluster', 'Other')
+            # Use the proper cluster name for display
+            collection_name = CLUSTER_NAMES.get(collection_key, collection_key)
         else:
-            collection_name = course.get('collection', 'Other')
+            collection_key = course.get('collection', 'Other')
+            collection_name = collection_key.replace('_', ' ').title()
         
-        if collection_name not in courses_by_collection:
-            courses_by_collection[collection_name] = []
-        courses_by_collection[collection_name].append(course)
+        if collection_key not in courses_by_collection:
+            courses_by_collection[collection_key] = {
+                'name': collection_name,
+                'courses': []
+            }
+        courses_by_collection[collection_key]['courses'].append(course)
     
     print(f"✅ Loaded {len(qualifying_courses)} {level} courses")
+    
+    # Set session data for basket and search functionality
+    session['email'] = f"verified_{index_number}@temp.com"
+    session['index_number'] = index_number
+    session['verified_payment'] = True
     
     return render_template('collection_results.html', 
                          courses=qualifying_courses,
@@ -1505,8 +1590,8 @@ def show_verified_level_results(level):
                          subjects=SUBJECTS, 
                          email=f"verified_{index_number}@temp.com", 
                          index_number=index_number,
-                         flow=level)
-
+                         flow=level,
+                         cluster_names=CLUSTER_NAMES)  # Add this line to pass cluster names
 # --- Debug and Testing Routes ---
 @app.route('/debug/database')
 def debug_database():
@@ -1593,11 +1678,725 @@ def debug_db_status():
             status['error'] = str(e)
     
     return jsonify(status)
+# Add these imports at the top if not already present
+import re
+from bson import ObjectId
 
+# Add these routes after your existing routes in app.py
+
+# --- Course Basket Routes ---
+@app.route('/add-to-basket', methods=['POST'])
+def add_to_basket():
+    """Add a course to user's basket"""
+    try:
+        course_data = request.get_json()
+        
+        if not course_data:
+            return jsonify({'success': False, 'error': 'No course data provided'})
+        
+        print(f"📥 Adding course to basket: {course_data.get('programme_name', 'Unknown')}")
+        
+        # Get user info from session - handle both regular and verified users
+        email = session.get('email')
+        index_number = session.get('index_number')
+        
+        # For verified users (accessed via payment verification)
+        if not email or not index_number:
+            verified_index = session.get('verified_index')
+            if verified_index:
+                email = f"verified_{verified_index}@temp.com"
+                index_number = verified_index
+                session['email'] = email
+                session['index_number'] = index_number
+                print(f"✅ Using verified user: {email}, index: {index_number}")
+            else:
+                error_msg = 'User not authenticated. Please start from the home page or verify your payment.'
+                print(f"❌ {error_msg}")
+                return jsonify({'success': False, 'error': error_msg})
+        
+        # Store the current flow/level for redirect purposes
+        # Try to get from referrer or use default
+        referer = request.headers.get('Referer', '')
+        if 'degree' in referer:
+            session['current_level'] = 'degree'
+        elif 'diploma' in referer:
+            session['current_level'] = 'diploma'
+        elif 'certificate' in referer:
+            session['current_level'] = 'certificate'
+        elif 'artisan' in referer:
+            session['current_level'] = 'artisan'
+        elif 'kmtc' in referer:
+            session['current_level'] = 'kmtc'
+        
+        # If we couldn't determine from referrer, use current_flow or default
+        if 'current_level' not in session:
+            session['current_level'] = session.get('current_flow', 'degree')
+        
+        print(f"🔗 Stored current level: {session['current_level']}")
+        
+        # Initialize basket in session if not exists
+        if 'course_basket' not in session:
+            session['course_basket'] = []
+            print("🆕 Initialized new basket in session")
+        
+        # Check if course already in basket
+        course_id = course_data.get('programme_code') or course_data.get('course_code') or str(course_data.get('_id', ''))
+        existing_course = next((c for c in session['course_basket'] if 
+                              isinstance(c, dict) and 
+                              (c.get('programme_code') == course_id or 
+                               c.get('course_code') == course_id or
+                               str(c.get('_id', '')) == course_id)), None)
+        
+        if existing_course:
+            print(f"⚠️ Course already in basket: {course_id}")
+            return jsonify({'success': False, 'error': 'Course already in basket'})
+        
+        # Ensure course_data is a proper dictionary
+        if not isinstance(course_data, dict):
+            course_data = dict(course_data)
+        
+        # Add course to basket with timestamp
+        course_data['added_at'] = datetime.now().isoformat()
+        course_data['basket_id'] = str(ObjectId())  # Unique ID for basket item
+        course_data['user_email'] = email
+        course_data['user_index'] = index_number
+        
+        session['course_basket'].append(course_data)
+        session.modified = True
+        
+        basket_count = len(session['course_basket'])
+        print(f"✅ Course added to basket. Total items: {basket_count}")
+        
+        # Auto-save basket to database
+        try:
+            if save_user_basket(email, index_number, session['course_basket']):
+                print("💾 Basket auto-saved to database")
+        except Exception as save_error:
+            print(f"⚠️ Failed to auto-save basket: {save_error}")
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Course added to basket',
+            'basket_count': basket_count
+        })
+        
+    except Exception as e:
+        print(f"❌ Error adding to basket: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': f'Server error: {str(e)}'})
+@app.route('/debug/basket-status')
+def debug_basket_status():
+    """Debug route to check basket status"""
+    status = {
+        'session_keys': list(session.keys()),
+        'session_basket': session.get('course_basket', []),
+        'session_basket_count': len(session.get('course_basket', [])),
+        'verified_payment': session.get('verified_payment'),
+        'verified_index': session.get('verified_index'),
+        'email': session.get('email'),
+        'index_number': session.get('index_number')
+    }
+    
+    if session.get('verified_index'):
+        db_basket = get_user_basket_by_index(session['verified_index'])
+        status['database_basket'] = db_basket
+        status['database_basket_count'] = len(db_basket)
+    
+    return jsonify(status)
+    
+    
+@app.route('/remove-from-basket', methods=['POST'])
+def remove_from_basket():
+    """Remove a specific course from user's basket"""
+    try:
+        data = request.get_json()
+        basket_id = data.get('basket_id')
+        
+        if not basket_id:
+            return jsonify({'success': False, 'error': 'No basket ID provided'})
+        
+        # Get user info
+        email = session.get('email')
+        index_number = session.get('index_number')
+        
+        # For verified users, get from verified_index
+        if not index_number:
+            index_number = session.get('verified_index')
+            if index_number:
+                email = f"verified_{index_number}@temp.com"
+        
+        if not index_number:
+            return jsonify({'success': False, 'error': 'User not identified'})
+        
+        print(f"🗑️ Removing item {basket_id} from basket for user: {index_number}")
+        
+        # Remove from session first
+        basket_count = 0
+        if 'course_basket' in session:
+            session['course_basket'] = [course for course in session['course_basket'] 
+                                      if course.get('basket_id') != basket_id]
+            basket_count = len(session['course_basket'])
+            session.modified = True
+            print(f"✅ Removed from session. New count: {basket_count}")
+        
+        # Remove from database
+        if database_connected:
+            try:
+                # Get current basket from database
+                basket_data = db_user_data['user_baskets'].find_one({
+                    'index_number': index_number,
+                    'is_active': True
+                })
+                
+                if basket_data and 'basket' in basket_data:
+                    # Filter out the item to remove
+                    updated_basket = [course for course in basket_data['basket'] 
+                                    if course.get('basket_id') != basket_id]
+                    
+                    # Update database
+                    result = db_user_data['user_baskets'].update_one(
+                        {'index_number': index_number},
+                        {'$set': {
+                            'basket': updated_basket,
+                            'updated_at': datetime.now()
+                        }}
+                    )
+                    
+                    basket_count = len(updated_basket)
+                    print(f"✅ Removed from database. New count: {basket_count}")
+                    
+                    # Update session with the database state
+                    session['course_basket'] = updated_basket
+                    
+            except Exception as db_error:
+                print(f"❌ Error removing from database: {db_error}")
+                # If database fails, we still have the session updated
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Course removed from basket',
+            'basket_count': basket_count
+        })
+        
+    except Exception as e:
+        print(f"❌ Error removing from basket: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get-basket')
+def get_basket():
+    """Get user's current basket"""
+    basket = session.get('course_basket', [])
+    return jsonify({
+        'success': True,
+        'basket': basket,
+        'count': len(basket)
+    })
+
+@app.route('/clear-basket', methods=['POST'])
+def clear_basket():
+    """Clear user's basket from both session and database"""
+    try:
+        # Get user info
+        email = session.get('email')
+        index_number = session.get('index_number')
+        
+        # For verified users, get from verified_index
+        if not index_number:
+            index_number = session.get('verified_index')
+            if index_number:
+                email = f"verified_{index_number}@temp.com"
+        
+        if not index_number:
+            return jsonify({'success': False, 'error': 'User not identified'})
+        
+        print(f"🗑️ Clearing basket for user: {index_number}")
+        
+        # Clear from database
+        if database_connected:
+            try:
+                result = db_user_data['user_baskets'].update_one(
+                    {'index_number': index_number},
+                    {'$set': {
+                        'basket': [],
+                        'updated_at': datetime.now(),
+                        'is_active': False
+                    }}
+                )
+                print(f"✅ Basket cleared from database for {index_number}")
+            except Exception as db_error:
+                print(f"❌ Error clearing basket from database: {db_error}")
+        
+        # Clear from session
+        session.pop('course_basket', None)
+        session.modified = True
+        
+        # Also clear from session storage for verified users
+        if session.get('verified_payment'):
+            session.pop('course_basket', None)
+        
+        print(f"✅ Basket cleared from session for {index_number}")
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Basket cleared successfully',
+            'basket_count': 0
+        })
+        
+    except Exception as e:
+        print(f"❌ Error clearing basket: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
+@app.route('/basket')
+def view_basket():
+    """Display basket page - only accessible via verified payment or results"""
+    # Check access sources
+    referer = request.headers.get('Referer', '')
+    allowed_referrers = ['/results/', '/verified-dashboard', '/collection-courses/', '/verified-results/']
+    is_from_allowed_page = any(ref in referer for ref in allowed_referrers)
+    is_verified = session.get('verified_payment')
+    
+    # Get basket from appropriate source
+    basket = []
+    
+    # First priority: verified users (from database)
+    if is_verified:
+        index_number = session.get('verified_index')
+        if index_number:
+            basket = get_user_basket_by_index(index_number)
+            print(f"🛒 Loaded basket from database for verified user {index_number}: {len(basket)} items")
+    
+    # Second priority: session basket
+    if not basket and session.get('course_basket'):
+        basket = session.get('course_basket', [])
+        print(f"🛒 Loaded basket from session: {len(basket)} items")
+    
+    # Check if user has access
+    has_basket = len(basket) > 0
+    
+    if not is_from_allowed_page and not is_verified and not has_basket:
+        flash("Please browse your qualified courses first or verify your payment to use the basket", "warning")
+        return redirect(url_for('index'))
+    
+    # Ensure basket items have proper structure
+    processed_basket = []
+    for item in basket:
+        if isinstance(item, dict):
+            # Ensure added_at field exists and is properly formatted
+            if 'added_at' not in item:
+                item['added_at'] = datetime.now().isoformat()
+            # Ensure basket_id exists
+            if 'basket_id' not in item:
+                item['basket_id'] = str(ObjectId())
+            processed_basket.append(item)
+        else:
+            # Skip invalid items
+            continue
+    
+    basket_count = len(processed_basket)
+    print(f"🎯 Final basket count for display: {basket_count}")
+    
+    return render_template('basket.html', basket=processed_basket, basket_count=basket_count)
+
+@app.route('/save-basket', methods=['POST'])
+def save_basket_to_db():
+    """Save basket to database - only from results pages"""
+    try:
+        basket_data = request.get_json()
+        
+        if not basket_data:
+            return jsonify({'success': False, 'error': 'No basket data provided'})
+        
+        # Only allow saving if user is verified or on results page
+        index_number = session.get('verified_index') or session.get('index_number')
+        email = session.get('email')
+        
+        if not index_number:
+            return jsonify({'success': False, 'error': 'User not verified'})
+        
+        # Use verified email or create one
+        if not email and index_number:
+            email = f"verified_{index_number}@temp.com"
+        
+        # Save to database
+        if save_user_basket(email, index_number, basket_data):
+            # Also update session
+            session['course_basket'] = basket_data
+            return jsonify({
+                'success': True,
+                'message': 'Basket saved successfully',
+                'basket_count': len(basket_data)
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save basket'})
+            
+    except Exception as e:
+        print(f"❌ Error saving basket: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/load-basket')
+def load_basket_from_db():
+    """Load basket from database - only for verified users"""
+    index_number = session.get('verified_index') or session.get('index_number')
+    
+    if not index_number:
+        return jsonify({'success': False, 'error': 'User not verified'})
+    
+    basket = get_user_basket_by_index(index_number)
+    
+    # Update session with loaded basket
+    session['course_basket'] = basket
+    
+    return jsonify({
+        'success': True,
+        'basket': basket,
+        'basket_count': len(basket)
+    })
+
+# Add to your database initialization
+def initialize_database():
+    # ... existing code ...
+    
+    # Create basket collection with indexes
+    if database_connected:
+        user_baskets_collection = db_user_data['user_baskets']
+        user_baskets_collection.create_index([("index_number", 1)])
+        user_baskets_collection.create_index([("email", 1)])
+        user_baskets_collection.create_index([("created_at", 1)])
+
+# Basket Database Functions
+def save_user_basket(email, index_number, basket_data):
+    """Save user basket to database"""
+    # Process basket data to ensure proper structure
+    processed_basket = []
+    for item in basket_data:
+        if isinstance(item, dict):
+            # Ensure added_at field exists
+            if 'added_at' not in item:
+                item['added_at'] = datetime.now().isoformat()
+            # Ensure basket_id exists
+            if 'basket_id' not in item:
+                item['basket_id'] = str(ObjectId())
+            processed_basket.append(item)
+    
+    if not database_connected:
+        session['course_basket'] = processed_basket
+        print(f"💾 Basket saved to session: {len(processed_basket)} items")
+        return True
+        
+    basket_record = {
+        'email': email,
+        'index_number': index_number,
+        'basket': processed_basket,
+        'created_at': datetime.now(),
+        'updated_at': datetime.now(),
+        'is_active': True
+    }
+    
+    try:
+        result = db_user_data['user_baskets'].update_one(
+            {'index_number': index_number},
+            {'$set': basket_record},
+            upsert=True
+        )
+        print(f"✅ Basket saved to database for {index_number} with {len(processed_basket)} courses")
+        # Also update session
+        session['course_basket'] = processed_basket
+        return True
+    except Exception as e:
+        print(f"❌ Error saving user basket: {str(e)}")
+        session['course_basket'] = processed_basket
+        return False
+def get_user_basket_by_index(index_number):
+    """Get user basket from database by index number"""
+    if not database_connected:
+        basket = session.get('course_basket', [])
+        # Ensure basket items have proper structure
+        processed_basket = []
+        for item in basket:
+            if isinstance(item, dict):
+                processed_basket.append(item)
+        return processed_basket
+    
+    try:
+        basket_data = db_user_data['user_baskets'].find_one({
+            'index_number': index_number,
+            'is_active': True
+        })
+        if basket_data and 'basket' in basket_data:
+            # Ensure basket items have proper structure
+            processed_basket = []
+            for item in basket_data['basket']:
+                if isinstance(item, dict):
+                    processed_basket.append(item)
+            print(f"✅ Loaded basket from database for {index_number} with {len(processed_basket)} courses")
+            # Also update session with loaded basket
+            session['course_basket'] = processed_basket
+            return processed_basket
+    except Exception as e:
+        print(f"❌ Error getting user basket from database: {str(e)}")
+    
+    return []
+def clear_user_basket(index_number):
+    """Clear user basket from database"""
+    if database_connected:
+        try:
+            result = db_user_data['user_baskets'].update_one(
+                {'index_number': index_number},
+                {'$set': {
+                    'basket': [],
+                    'updated_at': datetime.now(),
+                    'is_active': False
+                }}
+            )
+            print(f"✅ Basket database record cleared for {index_number}")
+            return True
+        except Exception as e:
+            print(f"❌ Error clearing user basket from database: {str(e)}")
+            return False
+    
+    # Clear from session
+    session.pop('course_basket', None)
+    return True
+def get_user_basket_by_index(index_number):
+    """Get user basket from database by index number"""
+    if not database_connected:
+        basket = session.get('course_basket', [])
+        # Ensure basket items have proper structure
+        processed_basket = []
+        for item in basket:
+            if isinstance(item, dict):
+                processed_basket.append(item)
+        return processed_basket
+    
+    try:
+        basket_data = db_user_data['user_baskets'].find_one({
+            'index_number': index_number,
+            'is_active': True  # Only get active baskets
+        })
+        if basket_data and 'basket' in basket_data:
+            # Ensure basket items have proper structure
+            processed_basket = []
+            for item in basket_data['basket']:
+                if isinstance(item, dict):
+                    processed_basket.append(item)
+            print(f"✅ Loaded basket from database for {index_number} with {len(processed_basket)} courses")
+            # Also update session with loaded basket
+            session['course_basket'] = processed_basket
+            return processed_basket
+    except Exception as e:
+        print(f"❌ Error getting user basket from database: {str(e)}")
+    
+    return []
+
+def search_courses(query, courses):
+    """Search courses by name, code, institution, or programme name"""
+    if not query:
+        return courses
+    
+    if not courses:
+        return []
+    
+    query = query.lower().strip()
+    results = []
+    
+    for course in courses:
+        # Handle case where course might be None or invalid
+        if not course:
+            continue
+            
+        # Search in multiple possible field names - with safe defaults
+        course_name = str(course.get('course_name', '')).lower()
+        programme_name = str(course.get('programme_name', '')).lower()
+        course_code = str(course.get('course_code', '')).lower()
+        programme_code = str(course.get('programme_code', '')).lower()
+        institution = str(course.get('institution_name', '')).lower()
+        cluster = str(course.get('cluster', '')).lower()
+        collection = str(course.get('collection', '')).lower()
+        
+        # Check all possible fields
+        matches = (
+            query in course_name or 
+            query in programme_name or
+            query in course_code or 
+            query in programme_code or
+            query in institution or
+            query in cluster or
+            query in collection
+        )
+        
+        if matches:
+            results.append(course)
+    
+    return results
+
+@app.route('/search-courses/<flow>')
+def search_courses_route(flow):
+    """Search courses within a specific flow"""
+    try:
+        query = request.args.get('q', '').strip()
+        
+        print(f"🔍 Received search request for flow: {flow}, query: '{query}'")
+        
+        # Get user info for course filtering
+        email = session.get('email')
+        index_number = session.get('index_number')
+        
+        qualifying_courses = []
+        
+        # For verified users (accessed via Already Made Payment)
+        if not email or not index_number:
+            verified_index = session.get('verified_index')
+            print(f"🔍 User verification status - verified_index: {verified_index}")
+            
+            if verified_index:
+                # Get courses from database for verified users
+                courses_data = user_courses_collection.find_one({
+                    'index_number': verified_index,
+                    'level': flow
+                })
+                if courses_data and courses_data.get('courses'):
+                    qualifying_courses = courses_data['courses']
+                    # Convert ObjectId to string for JSON serialization
+                    converted_courses = []
+                    for course in qualifying_courses:
+                        if course:  # Check if course is not None
+                            course_dict = dict(course)
+                            if '_id' in course_dict and isinstance(course_dict['_id'], ObjectId):
+                                course_dict['_id'] = str(course_dict['_id'])
+                            converted_courses.append(course_dict)
+                    qualifying_courses = converted_courses
+                    print(f"✅ Loaded {len(qualifying_courses)} courses from database for verified user")
+                else:
+                    print(f"⚠️ No courses found in database for {flow} level")
+                    qualifying_courses = []
+            else:
+                # Regular users without verification - get courses based on flow from session
+                print(f"🔍 Regular user - checking session data for {flow}")
+                if flow == 'degree':
+                    user_grades = session.get('degree_grades', {})
+                    user_cluster_points = session.get('degree_cluster_points', {})
+                    if user_grades and user_cluster_points:
+                        qualifying_courses = get_qualifying_courses(user_grades, user_cluster_points)
+                        print(f"✅ Loaded {len(qualifying_courses)} degree courses from qualification check")
+                    else:
+                        qualifying_courses = []
+                        print("⚠️ No degree grades or cluster points in session")
+                elif flow == 'diploma':
+                    user_grades = session.get('diploma_grades', {})
+                    user_mean_grade = session.get('diploma_mean_grade', '')
+                    if user_grades and user_mean_grade:
+                        qualifying_courses = get_qualifying_diploma_courses(user_grades, user_mean_grade)
+                        print(f"✅ Loaded {len(qualifying_courses)} diploma courses from qualification check")
+                    else:
+                        qualifying_courses = []
+                        print("⚠️ No diploma grades or mean grade in session")
+                elif flow == 'certificate':
+                    user_grades = session.get('certificate_grades', {})
+                    user_mean_grade = session.get('certificate_mean_grade', '')
+                    if user_grades and user_mean_grade:
+                        qualifying_courses = get_qualifying_certificate_courses(user_grades, user_mean_grade)
+                        print(f"✅ Loaded {len(qualifying_courses)} certificate courses from qualification check")
+                    else:
+                        qualifying_courses = []
+                        print("⚠️ No certificate grades or mean grade in session")
+                elif flow == 'artisan':
+                    user_grades = session.get('artisan_grades', {})
+                    user_mean_grade = session.get('artisan_mean_grade', '')
+                    if user_grades and user_mean_grade:
+                        qualifying_courses = get_qualifying_artisan_courses(user_grades, user_mean_grade)
+                        print(f"✅ Loaded {len(qualifying_courses)} artisan courses from qualification check")
+                    else:
+                        qualifying_courses = []
+                        print("⚠️ No artisan grades or mean grade in session")
+                elif flow == 'kmtc':
+                    user_grades = session.get('kmtc_grades', {})
+                    user_mean_grade = session.get('kmtc_mean_grade', '')
+                    if user_grades and user_mean_grade:
+                        qualifying_courses = get_qualifying_kmtc_courses(user_grades, user_mean_grade)
+                        print(f"✅ Loaded {len(qualifying_courses)} KMTC courses from qualification check")
+                    else:
+                        qualifying_courses = []
+                        print("⚠️ No KMTC grades or mean grade in session")
+                else:
+                    qualifying_courses = []
+                    print(f"⚠️ Unknown flow type: {flow}")
+        else:
+            # Regular users with session data - get courses based on flow
+            print(f"🔍 Regular user with session - getting {flow} courses")
+            if flow == 'degree':
+                user_grades = session.get('degree_grades', {})
+                user_cluster_points = session.get('degree_cluster_points', {})
+                qualifying_courses = get_qualifying_courses(user_grades, user_cluster_points)
+            elif flow == 'diploma':
+                user_grades = session.get('diploma_grades', {})
+                user_mean_grade = session.get('diploma_mean_grade', '')
+                qualifying_courses = get_qualifying_diploma_courses(user_grades, user_mean_grade)
+            elif flow == 'certificate':
+                user_grades = session.get('certificate_grades', {})
+                user_mean_grade = session.get('certificate_mean_grade', '')
+                qualifying_courses = get_qualifying_certificate_courses(user_grades, user_mean_grade)
+            elif flow == 'artisan':
+                user_grades = session.get('artisan_grades', {})
+                user_mean_grade = session.get('artisan_mean_grade', '')
+                qualifying_courses = get_qualifying_artisan_courses(user_grades, user_mean_grade)
+            elif flow == 'kmtc':
+                user_grades = session.get('kmtc_grades', {})
+                user_mean_grade = session.get('kmtc_mean_grade', '')
+                qualifying_courses = get_qualifying_kmtc_courses(user_grades, user_mean_grade)
+            else:
+                qualifying_courses = []
+        
+        # Ensure qualifying_courses is a list
+        if not isinstance(qualifying_courses, list):
+            print(f"⚠️ qualifying_courses is not a list, converting: {type(qualifying_courses)}")
+            qualifying_courses = []
+        
+        print(f"🔍 Before search: {len(qualifying_courses)} courses available")
+        
+        # Perform search
+        if query:
+            search_results = search_courses(query, qualifying_courses)
+            print(f"🔍 After search: {len(search_results)} courses match '{query}'")
+        else:
+            search_results = qualifying_courses
+            print(f"🔍 No query, returning all {len(search_results)} courses")
+        
+        # Ensure all courses have proper string IDs
+        final_results = []
+        for course in search_results:
+            if course and isinstance(course, dict):
+                course_copy = course.copy()
+                if '_id' in course_copy and isinstance(course_copy['_id'], ObjectId):
+                    course_copy['_id'] = str(course_copy['_id'])
+                final_results.append(course_copy)
+            elif course:
+                final_results.append(course)
+        
+        print(f"🔍 Final results: {len(final_results)} courses")
+        
+        return jsonify({
+            'success': True,
+            'results': final_results,
+            'count': len(final_results),
+            'query': query
+        })
+        
+    except Exception as e:
+        print(f"❌ Error searching courses in {flow}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False, 
+            'error': f'Search failed: {str(e)}',
+            'results': [],
+            'count': 0,
+            'query': query or ''
+        })
+    
 @app.route('/temp-bypass/<flow>')
 def temp_bypass(flow):
     session[f'paid_{flow}'] = True
-    session['email'] = 'test@example.com'
+    session['email'] = 'test@example.com' 
     session['index_number'] = '123456/2024'
     
     if flow == 'diploma':

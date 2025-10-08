@@ -18,35 +18,36 @@
         }
 
         /* Verify Payment Modal Styles */
-#verifyPreview .card {
-    border: 2px solid #198754;
-}
+        #verifyPreview .card {
+            border: 2px solid #198754;
+        }
 
-#verifyPreview .badge {
-    font-size: 0.8em;
-    padding: 0.5em 0.75em;
-}
+        #verifyPreview .badge {
+            font-size: 0.8em;
+            padding: 0.5em 0.75em;
+        }
 
-#verifyLoading .spinner-border {
-    width: 3rem;
-    height: 3rem;
-}
+        #verifyLoading .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
 
-.form-text {
-    font-size: 0.8rem;
-    color: #6c757d;
-}
+        .form-text {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
 
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .modal-dialog.modal-lg {
-        margin: 1rem;
-    }
-    
-    #courseLevels {
-        justify-content: center;
-    }
-}
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .modal-dialog.modal-lg {
+                margin: 1rem;
+            }
+            
+            #courseLevels {
+                justify-content: center;
+            }
+        }
+        
         .main-wrapper {
             display: flex;
             flex-direction: column;
@@ -131,18 +132,21 @@
         }
 
         /* Screen-reader only helper */
-        .visually-hidden { position: absolute !important; height: 1px; width: 1px; overflow: hidden; clip: rect(1px, 1px, 1px, 1px); white-space: nowrap; }
-
-        /* Bootstrap handles modal visibility and accessibility; avoid manually forcing aria-hidden on modals */
+        .visually-hidden { 
+            position: absolute !important; 
+            height: 1px; 
+            width: 1px; 
+            overflow: hidden; 
+            clip: rect(1px, 1px, 1px, 1px); 
+            white-space: nowrap; 
+        }
     </style>
     {% block links %}{% endblock %}
 </head>
 
 <body>
-   
     <div class="main-wrapper">
-
-        <!-- Hamburger Button - accessibility: aria-label, title, aria-controls, aria-expanded -->
+        <!-- Hamburger Button -->
         <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation menu" title="Open menu" aria-controls="sidebarMenu" aria-expanded="false">
             <i class="fa fa-bars" aria-hidden="true"></i>
             <span class="visually-hidden">Toggle navigation menu</span>
@@ -156,15 +160,20 @@
             <a href="mailto:support@example.com">Email Us</a>
             <a href="https://www.coursera.org/courses?query=free" target="_blank">Short Courses (Free)</a>
             <a href="/about">About Us</a>
-            <!-- Trigger modal to verify an already-made payment -->
             <a href="#" data-bs-toggle="modal" data-bs-target="#verifyPaymentModal">Already Made Payment</a>
             <a href="#" data-bs-toggle="modal" data-bs-target="#helpModal">
                 Help <i class="fa fa-question-circle" aria-hidden="true"></i>
             </a>
+            <!-- Basket link - only shown when user has verified payment -->
+            <a href="/basket" class="position-relative" id="basketNavLink" style="display: none;">
+                <i class="fas fa-shopping-basket me-2"></i>My Course Basket
+                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+                    id="basketNavCount">0</span>
+            </a>
         </div>
 
         <!-- Overlay -->
-    <div class="overlay" id="overlay" onclick="toggleSidebar()" role="button" aria-label="Close navigation menu"></div>
+        <div class="overlay" id="overlay" onclick="toggleSidebar()" role="button" aria-label="Close navigation menu"></div>
 
         <!-- Main Content -->
         <div class="main-content container">
@@ -192,13 +201,14 @@
             {% block course_buttons %}{% endblock %}
             {% block content %}{% endblock %}
         </div>
+
         <!-- Footer -->
         <div class="footer">
             <p>&copy; 2025 All rights reserved. Designed by Hean Njuki.</p>
         </div>
 
-    <!-- Help Modal -->
-    <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" role="dialog" aria-modal="true">
+        <!-- Help Modal -->
+        <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" role="dialog" aria-modal="true">
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
@@ -219,297 +229,350 @@
             </div>
         </div>
 
-<!-- Verify Payment Modal -->
-<div class="modal fade" id="verifyPaymentModal" tabindex="-1" aria-labelledby="verifyPaymentLabel" role="dialog"
-    aria-modal="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="verifyPaymentLabel">Verify Your Payment & View Courses</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-info">
-                    <i class="fa fa-info-circle me-2"></i>
-                    Enter your M-Pesa receipt number and KCSE index to view your qualified courses.
+        <!-- Verify Payment Modal -->
+        <div class="modal fade" id="verifyPaymentModal" tabindex="-1" aria-labelledby="verifyPaymentLabel" role="dialog"
+            aria-modal="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="verifyPaymentLabel">Verify Your Payment & View Courses</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-info">
+                            <i class="fa fa-info-circle me-2"></i>
+                            Enter your M-Pesa receipt number and KCSE index to view your qualified courses.
+                        </div>
+
+                        <form id="verifyPaymentForm">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="mpesa_receipt" class="form-label">M-Pesa Receipt Number *</label>
+                                        <input type="text" class="form-control" id="mpesa_receipt" name="mpesa_receipt"
+                                            placeholder="e.g., RJ89A5LBQ2" required maxlength="10">
+                                        <div class="form-text">10-character receipt from M-Pesa message</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="index_number_verify" class="form-label">KCSE Index Number *</label>
+                                        <input type="text" class="form-control" id="index_number_verify" name="index_number"
+                                            placeholder="12345678902/2025" required pattern="\d{11}/\d{4}">
+                                        <div class="form-text">Format: 12345678902/2025</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="verifyError" class="alert alert-danger" role="alert" style="display:none;"></div>
+
+                            <!-- Loading spinner -->
+                            <div id="verifyLoading" class="text-center" style="display: none;">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="mt-2">Verifying your payment...</p>
+                            </div>
+
+                            <!-- Results Preview -->
+                            <div id="verifyPreview" style="display: none;">
+                                <div class="card mt-3">
+                                    <div class="card-header bg-success text-white">
+                                        <h6 class="mb-0">
+                                            <i class="fa fa-check-circle me-2"></i>Payment Verified Successfully
+                                        </h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div id="previewInfo"></div>
+                                        <div class="mt-3">
+                                            <h6>Available Course Levels:</h6>
+                                            <div id="courseLevels" class="d-flex flex-wrap gap-2 mt-2"></div>
+                                        </div>
+                                        <div class="d-flex justify-content-end mt-3">
+                                            <button type="button" id="showResultsBtn" class="btn btn-success me-2">
+                                                <i class="fa fa-graduation-cap me-1"></i>View All Courses
+                                            </button>
+                                            <button type="button" id="cancelPreviewBtn" class="btn btn-secondary"
+                                                data-bs-dismiss="modal">Close</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="d-grid gap-2">
+                                <button type="submit" class="btn btn-primary" id="verifySubmitBtn">
+                                    <i class="fa fa-search me-1"></i>Verify & View Courses
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
-
-                <form id="verifyPaymentForm">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="mpesa_receipt" class="form-label">M-Pesa Receipt Number *</label>
-                                <input type="text" class="form-control" id="mpesa_receipt" name="mpesa_receipt"
-                                    placeholder="e.g., RJ89A5LBQ2" required maxlength="10">
-                                <div class="form-text">10-character receipt from M-Pesa message</div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="index_number_verify" class="form-label">KCSE Index Number *</label>
-                                <input type="text" class="form-control" id="index_number_verify" name="index_number"
-                                    placeholder="12345678902/2025" required pattern="\d{11}/\d{4}">
-                                <div class="form-text">Format: 12345678902/2025</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="verifyError" class="alert alert-danger" role="alert" style="display:none;"></div>
-
-                    <!-- Loading spinner -->
-                    <div id="verifyLoading" class="text-center" style="display: none;">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2">Verifying your payment...</p>
-                    </div>
-
-                    <!-- Results Preview -->
-                    <div id="verifyPreview" style="display: none;">
-                        <div class="card mt-3">
-                            <div class="card-header bg-success text-white">
-                                <h6 class="mb-0">
-                                    <i class="fa fa-check-circle me-2"></i>Payment Verified Successfully
-                                </h6>
-                            </div>
-                            <div class="card-body">
-                                <div id="previewInfo"></div>
-                                <div class="mt-3">
-                                    <h6>Available Course Levels:</h6>
-                                    <div id="courseLevels" class="d-flex flex-wrap gap-2 mt-2"></div>
-                                </div>
-                                <div class="d-flex justify-content-end mt-3">
-                                    <button type="button" id="showResultsBtn" class="btn btn-success me-2">
-                                        <i class="fa fa-graduation-cap me-1"></i>View All Courses
-                                    </button>
-                                    <button type="button" id="cancelPreviewBtn" class="btn btn-secondary"
-                                        data-bs-dismiss="modal">Close</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-primary" id="verifySubmitBtn">
-                            <i class="fa fa-search me-1"></i>Verify & View Courses
-                        </button>
-                    </div>
-                </form>
             </div>
         </div>
     </div>
-</div>
 
-        {% block scripts %}{% endblock %}
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-            crossorigin="anonymous"></script>
-        <script>
-            function toggleSidebar() {
-                const sidebar = document.getElementById('sidebarMenu');
-                const overlay = document.getElementById('overlay');
-                const isShowing = sidebar.classList.toggle('show');
-                overlay.classList.toggle('show');
-                
-                // Update menu toggle accessibility and sidebar link tabbability
-                const menuToggle = document.querySelector('.menu-toggle');
-                if (isShowing) {
-                    menuToggle.setAttribute('aria-label', 'Close navigation menu');
-                    menuToggle.setAttribute('title', 'Close menu');
-                    menuToggle.setAttribute('aria-expanded', 'true');
-                    // make sidebar links focusable
-                    Array.from(sidebar.querySelectorAll('a')).forEach(a => a.removeAttribute('tabindex'));
-                } else {
-                    menuToggle.setAttribute('aria-label', 'Open navigation menu');
-                    menuToggle.setAttribute('title', 'Open menu');
-                    menuToggle.setAttribute('aria-expanded', 'false');
-                    // remove links from tab order when hidden
-                    Array.from(sidebar.querySelectorAll('a')).forEach(a => a.setAttribute('tabindex', '-1'));
+    {% block scripts %}{% endblock %}
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        crossorigin="anonymous"></script>
+    <script>
+        // Basket Navigation Functions
+        function showBasketNavigation(basketCount) {
+            const basketNavLink = document.getElementById('basketNavLink');
+            const basketNavCount = document.getElementById('basketNavCount');
+
+            if (basketNavLink && basketCount > 0) {
+                basketNavLink.style.display = 'block';
+                if (basketNavCount) {
+                    basketNavCount.textContent = basketCount;
                 }
             }
+        }
 
-           // Verify payment form submission
-            document.addEventListener('DOMContentLoaded', function () {
-                const form = document.getElementById('verifyPaymentForm');
-                const errorBox = document.getElementById('verifyError');
-                const loadingDiv = document.getElementById('verifyLoading');
-                const previewDiv = document.getElementById('verifyPreview');
+        function hideBasketNavigation() {
+            const basketNavLink = document.getElementById('basketNavLink');
+            if (basketNavLink) {
+                basketNavLink.style.display = 'none';
+            }
+        }
 
-                if (!form) return;
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebarMenu');
+            const overlay = document.getElementById('overlay');
+            const isShowing = sidebar.classList.toggle('show');
+            overlay.classList.toggle('show');
+            
+            // Update menu toggle accessibility and sidebar link tabbability
+            const menuToggle = document.querySelector('.menu-toggle');
+            if (isShowing) {
+                menuToggle.setAttribute('aria-label', 'Close navigation menu');
+                menuToggle.setAttribute('title', 'Close menu');
+                menuToggle.setAttribute('aria-expanded', 'true');
+                // make sidebar links focusable
+                Array.from(sidebar.querySelectorAll('a')).forEach(a => a.removeAttribute('tabindex'));
+            } else {
+                menuToggle.setAttribute('aria-label', 'Open navigation menu');
+                menuToggle.setAttribute('title', 'Open menu');
+                menuToggle.setAttribute('aria-expanded', 'false');
+                // remove links from tab order when hidden
+                Array.from(sidebar.querySelectorAll('a')).forEach(a => a.setAttribute('tabindex', '-1'));
+            }
+        }
 
-                form.addEventListener('submit', async function (e) {
-                    e.preventDefault();
-                    errorBox.style.display = 'none';
-                    previewDiv.style.display = 'none';
+        // Verify payment form submission
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('verifyPaymentForm');
+            const errorBox = document.getElementById('verifyError');
+            const loadingDiv = document.getElementById('verifyLoading');
+            const previewDiv = document.getElementById('verifyPreview');
 
-                    // Get form values
-                    const mpesaReceipt = document.getElementById('mpesa_receipt').value.trim().toUpperCase();
-                    const indexVal = document.getElementById('index_number_verify').value.trim();
+            if (!form) return;
 
-                    // Validate M-Pesa receipt (10 alphanumeric characters)
-                    const receiptRegex = /^[A-Z0-9]{10}$/;
-                    if (!receiptRegex.test(mpesaReceipt)) {
-                        errorBox.textContent = 'Please enter a valid 10-character M-Pesa receipt number.';
+            form.addEventListener('submit', async function (e) {
+                e.preventDefault();
+                errorBox.style.display = 'none';
+                previewDiv.style.display = 'none';
+
+                // Get form values
+                const mpesaReceipt = document.getElementById('mpesa_receipt').value.trim().toUpperCase();
+                const indexVal = document.getElementById('index_number_verify').value.trim();
+
+                // Validate M-Pesa receipt (10 alphanumeric characters)
+                const receiptRegex = /^[A-Z0-9]{10}$/;
+                if (!receiptRegex.test(mpesaReceipt)) {
+                    errorBox.textContent = 'Please enter a valid 10-character M-Pesa receipt number.';
+                    errorBox.style.display = 'block';
+                    return;
+                }
+
+                // Validate KCSE index format
+                const indexRe = /^\d{11}\/\d{4}$/;
+                if (!indexRe.test(indexVal)) {
+                    errorBox.textContent = 'Index number must be in the format 12345678902/2025 (11 digits, slash, 4 digits).';
+                    errorBox.style.display = 'block';
+                    return;
+                }
+
+                // Show loading spinner
+                const submitBtn = document.getElementById('verifySubmitBtn');
+                submitBtn.disabled = true;
+                loadingDiv.style.display = 'block';
+
+                try {
+                    // Build payload
+                    let payload = new FormData();
+                    payload.append('mpesa_receipt', mpesaReceipt);
+                    payload.append('index_number', indexVal);
+
+                    const resp = await fetch('/verify-payment', {
+                        method: 'POST',
+                        body: payload
+                    });
+
+                    const json = await resp.json().catch(() => null);
+
+                    // Hide loading spinner
+                    loadingDiv.style.display = 'none';
+                    submitBtn.disabled = false;
+
+                    if (!resp.ok || !json) {
+                        errorBox.textContent = (json && json.error) ? json.error : 'Server error occurred. Please try later.';
                         errorBox.style.display = 'block';
                         return;
                     }
 
-                    // Validate KCSE index format
-                    const indexRe = /^\d{11}\/\d{4}$/;
-                    if (!indexRe.test(indexVal)) {
-                        errorBox.textContent = 'Index number must be in the format 12345678902/2025 (11 digits, slash, 4 digits).';
-                        errorBox.style.display = 'block';
-                        return;
-                    }
+                    if (json.success) {
+                        // Show preview with courses information
+                        const previewInfo = document.getElementById('previewInfo');
+                        const courseLevels = document.getElementById('courseLevels');
 
-                    // Show loading spinner
-                    const submitBtn = document.getElementById('verifySubmitBtn');
-                    submitBtn.disabled = true;
-                    loadingDiv.style.display = 'block';
+                        // Build preview info
+                        let infoHTML = `
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <strong>Index Number:</strong> ${indexVal}<br>
+                                    <strong>M-Pesa Receipt:</strong> ${mpesaReceipt}<br>
+                                    <strong>Payment Status:</strong> 
+                                    <span class="badge bg-success">Confirmed</span>
+                                </div>
+                                <div class="col-md-6">
+                                    <strong>Total Courses Found:</strong> ${json.courses_count || 0}<br>
+                                    <strong>Course Levels:</strong> ${json.levels ? json.levels.length : 0}
+                                </div>
+                            </div>
+                        `;
 
-                    try {
-                        // Build payload
-                        let payload = new FormData();
-                        payload.append('mpesa_receipt', mpesaReceipt);
-                        payload.append('index_number', indexVal);
+                        previewInfo.innerHTML = infoHTML;
 
-                        const resp = await fetch('/verify-payment', {
-                            method: 'POST',
-                            body: payload
+                        // Display available course levels with counts
+                        if (json.levels && json.levels.length > 0) {
+                            let levelsHTML = '';
+                            json.levels.forEach(level => {
+                                const count = json.level_details && json.level_details[level] ? json.level_details[level].count : 0;
+                                levelsHTML += `
+                                    <span class="badge bg-primary me-1 mb-1">
+                                        ${level.toUpperCase()} (${count})
+                                    </span>
+                                `;
+                            });
+                            courseLevels.innerHTML = levelsHTML;
+                        } else {
+                            courseLevels.innerHTML = '<span class="text-muted">No course levels found</span>';
+                        }
+
+                        // Set up the show results button
+                        const showBtn = document.getElementById('showResultsBtn');
+                        showBtn.onclick = function () {
+                            if (json.redirect_url) {
+                                window.location.href = json.redirect_url;
+                            } else {
+                                // Fallback to dashboard
+                                const params = new URLSearchParams({
+                                    index: indexVal,
+                                    receipt: mpesaReceipt
+                                });
+                                window.location.href = `/verified-dashboard?${params.toString()}`;
+                            }
+                        };
+
+                        // Show the preview section
+                        previewDiv.style.display = 'block';
+
+                        // Load and show user's saved basket
+                        fetch('/load-basket')
+                        .then(response => response.json())
+                        .then(basketData => {
+                            if (basketData.success) {
+                                showBasketNavigation(basketData.basket_count);
+                                console.log('✅ Loaded saved basket with', basketData.basket_count, 'courses');
+                                // Store verification state
+                                sessionStorage.setItem('userVerified', 'true');
+                            }
+                        })
+                        .catch(error => {
+                            console.log('No previous basket found');
                         });
 
-                        const json = await resp.json().catch(() => null);
-
-                        // Hide loading spinner
-                        loadingDiv.style.display = 'none';
-                        submitBtn.disabled = false;
-
-                        if (!resp.ok || !json) {
-                            errorBox.textContent = (json && json.error) ? json.error : 'Server error occurred. Please try later.';
-                            errorBox.style.display = 'block';
-                            return;
-                        }
-
-                       if (json.success) {
-                            // Show preview with courses information
-                            const previewInfo = document.getElementById('previewInfo');
-                            const courseLevels = document.getElementById('courseLevels');
-
-                            // Build preview info
-                            let infoHTML = `
-        <div class="row">
-            <div class="col-md-6">
-                <strong>Index Number:</strong> ${indexVal}<br>
-                <strong>M-Pesa Receipt:</strong> ${mpesaReceipt}<br>
-                <strong>Payment Status:</strong> 
-                <span class="badge bg-success">Confirmed</span>
-            </div>
-            <div class="col-md-6">
-                <strong>Total Courses Found:</strong> ${json.courses_count || 0}<br>
-                <strong>Course Levels:</strong> ${json.levels ? json.levels.length : 0}
-            </div>
-        </div>
-    `;
-
-                            previewInfo.innerHTML = infoHTML;
-
-                            // Display available course levels with counts
-                            if (json.levels && json.levels.length > 0) {
-                                let levelsHTML = '';
-                                json.levels.forEach(level => {
-                                    const count = json.level_details && json.level_details[level] ? json.level_details[level].count : 0;
-                                    levelsHTML += `
-                <span class="badge bg-primary me-1 mb-1">
-                    ${level.toUpperCase()} (${count})
-                </span>
-            `;
-                                });
-                                courseLevels.innerHTML = levelsHTML;
-                            } else {
-                                courseLevels.innerHTML = '<span class="text-muted">No course levels found</span>';
-                            }
-
-                            // Set up the show results button
-                            const showBtn = document.getElementById('showResultsBtn');
-                            showBtn.onclick = function () {
-                                if (json.redirect_url) {
-                                    window.location.href = json.redirect_url;
-                                } else {
-                                    // Fallback to dashboard
-                                    const params = new URLSearchParams({
-                                        index: indexVal,
-                                        receipt: mpesaReceipt
-                                    });
-                                    window.location.href = `/verified-dashboard?${params.toString()}`;
-                                }
-                            };
-
-                            // Show the preview section
-                            previewDiv.style.display = 'block';
-
-                            // Scroll to preview
-                            previewDiv.scrollIntoView({ behavior: 'smooth' });
-                        } else {
-                            errorBox.textContent = json.error || 'Payment verification failed. Please check your receipt and index number.';
-                            errorBox.style.display = 'block';
-                        }
-
-                    } catch (err) {
-                        loadingDiv.style.display = 'none';
-                        submitBtn.disabled = false;
-                        errorBox.textContent = 'Network error occurred. Please check your internet connection and try again.';
+                        // Scroll to preview
+                        previewDiv.scrollIntoView({ behavior: 'smooth' });
+                    } else {
+                        errorBox.textContent = json.error || 'Payment verification failed. Please check your receipt and index number.';
                         errorBox.style.display = 'block';
-                        console.error('Verification error:', err);
                     }
-                });
 
-                // Reset form when modal is closed
-                const verifyModal = document.getElementById('verifyPaymentModal');
-                if (verifyModal) {
-                    verifyModal.addEventListener('hidden.bs.modal', function () {
-                        form.reset();
-                        errorBox.style.display = 'none';
-                        previewDiv.style.display = 'none';
-                        loadingDiv.style.display = 'none';
-                        const submitBtn = document.getElementById('verifySubmitBtn');
-                        if (submitBtn) submitBtn.disabled = false;
-                    });
-                }
-
-                // Auto-format M-Pesa receipt input
-                const mpesaInput = document.getElementById('mpesa_receipt');
-                if (mpesaInput) {
-                    mpesaInput.addEventListener('input', function (e) {
-                        // Convert to uppercase and remove spaces
-                        this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-                        // Limit to 10 characters
-                        if (this.value.length > 10) {
-                            this.value = this.value.substring(0, 10);
-                        }
-                    });
-                }
-
-                // Auto-format index number input
-                const indexInput = document.getElementById('index_number_verify');
-                if (indexInput) {
-                    indexInput.addEventListener('input', function (e) {
-                        // Remove any non-digit characters except slash
-                        this.value = this.value.replace(/[^\d/]/g, '');
-
-                        // Auto-insert slash after 11 digits
-                        if (this.value.length === 11 && !this.value.includes('/')) {
-                            this.value = this.value + '/';
-                        }
-
-                        // Limit total length
-                        if (this.value.length > 16) {
-                            this.value = this.value.substring(0, 16);
-                        }
-                    });
+                } catch (err) {
+                    loadingDiv.style.display = 'none';
+                    submitBtn.disabled = false;
+                    errorBox.textContent = 'Network error occurred. Please check your internet connection and try again.';
+                    errorBox.style.display = 'block';
+                    console.error('Verification error:', err);
                 }
             });
-        </script>
-    </div>
-</body>
 
+            // Reset form when modal is closed
+            const verifyModal = document.getElementById('verifyPaymentModal');
+            if (verifyModal) {
+                verifyModal.addEventListener('hidden.bs.modal', function () {
+                    form.reset();
+                    errorBox.style.display = 'none';
+                    previewDiv.style.display = 'none';
+                    loadingDiv.style.display = 'none';
+                    const submitBtn = document.getElementById('verifySubmitBtn');
+                    if (submitBtn) submitBtn.disabled = false;
+                    
+                    // Only hide basket if user is not verified
+                    if (!sessionStorage.getItem('userVerified')) {
+                        hideBasketNavigation();
+                    }
+                });
+            }
+
+            // Auto-format M-Pesa receipt input
+            const mpesaInput = document.getElementById('mpesa_receipt');
+            if (mpesaInput) {
+                mpesaInput.addEventListener('input', function (e) {
+                    // Convert to uppercase and remove spaces
+                    this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+                    // Limit to 10 characters
+                    if (this.value.length > 10) {
+                        this.value = this.value.substring(0, 10);
+                    }
+                });
+            }
+
+            // Auto-format index number input
+            const indexInput = document.getElementById('index_number_verify');
+            if (indexInput) {
+                indexInput.addEventListener('input', function (e) {
+                    // Remove any non-digit characters except slash
+                    this.value = this.value.replace(/[^\d/]/g, '');
+
+                    // Auto-insert slash after 11 digits
+                    if (this.value.length === 11 && !this.value.includes('/')) {
+                        this.value = this.value + '/';
+                    }
+
+                    // Limit total length
+                    if (this.value.length > 16) {
+                        this.value = this.value.substring(0, 16);
+                    }
+                });
+            }
+
+            // Check if user is already verified and show basket
+            if (sessionStorage.getItem('userVerified')) {
+                fetch('/load-basket')
+                .then(response => response.json())
+                .then(basketData => {
+                    if (basketData.success && basketData.basket_count > 0) {
+                        showBasketNavigation(basketData.basket_count);
+                    }
+                })
+                .catch(error => {
+                    console.log('No saved basket found');
+                });
+            }
+        });
+    </script>
+</body>
 </html>
