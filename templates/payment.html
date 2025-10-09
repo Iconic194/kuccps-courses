@@ -11,78 +11,58 @@
   <!-- Payment Modal -->
   <div class="modal fade" id="paymentModal" tabindex="-1" aria-labelledby="paymentModalLabel" role="dialog"
     aria-modal="true" data-bs-backdrop="static" data-bs-keyboard="false">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="paymentModalLabel">Payment Required</h5>
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title fw-bold" id="paymentModalLabel">Payment Required</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="cancelButton"></button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body pt-0">
           <!-- Payment Information -->
-          <div class="alert alert-info mb-4">
-            <h6><i class="fa fa-info-circle me-2"></i>Payment Information</h6>
-            <p class="mb-1">Course Category: <strong>{{ flow.upper() }}</strong></p>
-            <p class="mb-1">Amount to pay: <strong>Ksh {{ amount }}</strong></p>
-            <p class="mb-0">
-              {% if is_first_category %}
-              First category price
-              {% else %}
-              Discounted price for additional category
-              {% endif %}
-            </p>
+          <div class="payment-info mb-4">
+            <p class="text-muted mb-2">Course Category: <span class="fw-bold text-dark">{{ flow.upper() }}</span></p>
+            <p class="text-muted mb-2">Amount to pay: <span class="fw-bold text-dark">Ksh {{ amount }}</span></p>
+            <div class="alert alert-light border mt-3 mb-0">
+              <p class="mb-1 small">
+                {% if is_first_category %}
+                First category price
+                {% else %}
+                Discounted price for additional category
+                {% endif %}
+              </p>
+            </div>
           </div>
 
           <form id="paymentForm">
-            <div class="mb-3">
-              <label for="phoneNumber" class="form-label">Enter your M-Pesa phone number:</label>
-              <div class="input-group">
-                <span class="input-group-text">+254</span>
-                <input type="tel" class="form-control" id="phoneNumber" name="phone" placeholder="712345678" required
-                  pattern="[0-9]{9}" maxlength="9" inputmode="numeric">
-              </div>
-              <div class="form-text">Enter your phone number without the country code (e.g., 712345678)</div>
+            <div class="mb-4">
+              <label for="phoneNumber" class="form-label fw-bold">Phone Number *</label>
+              <input type="tel" class="form-control form-control-lg" id="phoneNumber" name="phone"
+                placeholder="07xxxxxxx" required pattern="[0-9]{10}" maxlength="10" inputmode="numeric">
+              <div class="form-text text-muted">Enter your 10-digit M-Pesa phone number</div>
             </div>
 
-            <div class="payment-details mb-3">
-              <div class="card">
-                <div class="card-body">
-                  <h6>Payment Details:</h6>
-                  <ul class="list-unstyled small">
-                    <li><strong>Amount:</strong> Ksh {{ amount }}</li>
-                    <li><strong>Paybill:</strong> 4185095</li>
-                    <li><strong>Account:</strong> {{ session.get('index_number', 'Your KCSE Index Number') }}</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            <div class="d-flex justify-content-between align-items-center">
-              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancelButton">Cancel</button>
-              <button type="submit" class="btn btn-primary" id="payButton">
-                <span id="payButtonText">Pay Ksh {{ amount }}</span>
-                <span id="payButtonSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+            <div class="d-grid gap-2">
+              <button type="submit" class="btn btn-primary btn-lg fw-bold" id="payButton">
+                <span id="payButtonText">Proceed to Payment</span>
+                <span id="payButtonSpinner" class="spinner-border spinner-border-sm d-none ms-2" role="status"></span>
               </button>
             </div>
           </form>
 
           <!-- Payment Status Section -->
-          <div id="paymentStatus" class="mt-3" style="display: none;">
-            <div class="alert alert-warning">
-              <h6><i class="fas fa-sync-alt fa-spin"></i> Processing Payment</h6>
-              <p class="mb-2">Please check your phone and enter your M-Pesa PIN to complete the payment.</p>
-              <p class="mb-0"><small>Transaction ID: <span id="transactionRef"></span></small></p>
+          <div id="paymentStatus" class="mt-4 text-center" style="display: none;">
+            <div class="spinner-border text-primary mb-3" role="status">
+              <span class="visually-hidden">Processing payment...</span>
             </div>
-            <div class="text-center">
-              <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Waiting for payment...</span>
-              </div>
-              <p class="mt-2">Waiting for payment confirmation...</p>
-              <p class="small text-muted">This may take a few moments. Please do not close this window.</p>
-            </div>
+            <h6 class="fw-bold">Processing Payment</h6>
+            <p class="text-muted mb-2">Please check your phone and enter your M-Pesa PIN to complete the payment.</p>
+            <p class="small text-muted">Transaction ID: <span id="transactionRef" class="fw-bold"></span></p>
+            <p class="small text-muted">Waiting for payment confirmation...</p>
           </div>
 
           <!-- Error Message Section -->
-          <div id="paymentError" class="alert alert-danger mt-3" style="display: none;">
-            <h6><i class="fas fa-exclamation-triangle"></i> Payment Error</h6>
+          <div id="paymentError" class="alert alert-danger mt-3 text-center" style="display: none;">
+            <h6 class="fw-bold mb-2"><i class="fas fa-exclamation-triangle me-2"></i> Payment Error</h6>
             <p id="errorMessage" class="mb-0"></p>
           </div>
         </div>
@@ -102,8 +82,6 @@
     if (openModalButton) {
       console.log('Opening payment modal...');
       openModalButton.click();
-    } else {
-      console.error('Open modal button not found');
     }
 
     // Initialize phone number input formatting
@@ -111,8 +89,8 @@
     if (phoneInput) {
       phoneInput.addEventListener('input', function (e) {
         let value = e.target.value.replace(/\D/g, '');
-        if (value.length > 9) {
-          value = value.substring(0, 9);
+        if (value.length > 10) {
+          value = value.substring(0, 10);
         }
         e.target.value = value;
       });
@@ -146,13 +124,13 @@
         }
 
         // Validate phone number
-        if (!phone || phone.length !== 9 || !/^[0-9]+$/.test(phone)) {
-          showError('Please enter a valid 9-digit phone number (e.g., 712345678)');
+        if (!phone || phone.length !== 10 || !/^[0-9]+$/.test(phone)) {
+          showError('Please enter a valid 10-digit phone number (e.g., 0791196121)');
           return;
         }
 
         // Format phone to 254 format
-        const formattedPhone = '254' + phone;
+        const formattedPhone = '254' + phone.substring(1);
         console.log('Formatted phone:', formattedPhone);
 
         // Show loading state
@@ -179,18 +157,16 @@
             console.log('Payment response:', data);
 
             if (data.success) {
-              // Show payment status section
-              document.getElementById('paymentForm').style.display = 'none';
-              document.getElementById('paymentStatus').style.display = 'block';
+              // ✅ PAYMENT INITIATED SUCCESSFULLY - REDIRECT TO WAIT PAGE
+              console.log('✅ Payment initiated successfully, redirecting to wait page...');
 
-              // Update transaction reference
-              if (data.transaction_ref) {
-                document.getElementById('transactionRef').textContent = data.transaction_ref;
+              if (data.redirect_url) {
+                // Redirect to payment wait page immediately
+                window.location.href = data.redirect_url;
+              } else {
+                // Fallback redirect
+                window.location.href = `/payment-wait/${flow}?transaction_ref=${data.transaction_ref}`;
               }
-
-              // Start polling for payment confirmation
-              console.log('Starting payment status polling...');
-              pollPaymentStatus(flow, data.transaction_ref);
             } else {
               // Show error from server
               showError(data.error || 'Failed to initiate payment. Please try again.');
@@ -211,11 +187,9 @@
       if (errorDiv && errorMessage) {
         errorMessage.textContent = message;
         errorDiv.style.display = 'block';
-
-        // Scroll to error
         errorDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else {
-        alert(message); // Fallback
+        alert(message);
       }
     }
 
@@ -226,62 +200,9 @@
 
       if (payButton && payButtonText && payButtonSpinner) {
         payButton.disabled = false;
-        payButtonText.textContent = `Pay Ksh {{ amount }}`;
+        payButtonText.textContent = 'Proceed to Payment';
         payButtonSpinner.classList.add('d-none');
       }
-    }
-
-    let pollCount = 0;
-    const maxPollCount = 60; // 3 minutes (60 * 3 seconds)
-
-    function pollPaymentStatus(flow, transactionRef) {
-      pollCount++;
-      console.log(`Polling payment status (attempt ${pollCount}/${maxPollCount}) for:`, transactionRef);
-
-      fetch(`/check-payment-status/${flow}`)
-        .then(response => {
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-          return response.json();
-        })
-        .then(data => {
-          console.log('Payment status response:', data);
-
-          if (data.paid) {
-            // Payment confirmed, redirect to results
-            console.log('Payment confirmed, redirecting...');
-            const redirectUrl = data.redirect_url || `/results/${flow}`;
-            window.location.href = redirectUrl;
-          } else if (pollCount < maxPollCount) {
-            // Continue polling every 3 seconds
-            setTimeout(() => pollPaymentStatus(flow, transactionRef), 3000);
-          } else {
-            // Timeout reached
-            console.log('Payment polling timeout reached');
-            showError('Payment is taking longer than expected. Please check your phone for the M-Pesa prompt or try again.');
-            resetPaymentButton();
-
-            // Show the form again
-            document.getElementById('paymentForm').style.display = 'block';
-            document.getElementById('paymentStatus').style.display = 'none';
-          }
-        })
-        .catch(error => {
-          console.error('Polling error:', error);
-
-          if (pollCount < maxPollCount) {
-            // Continue polling even if there's an error
-            setTimeout(() => pollPaymentStatus(flow, transactionRef), 3000);
-          } else {
-            showError('Unable to verify payment status. Please check if payment was successful and try again.');
-            resetPaymentButton();
-
-            // Show the form again
-            document.getElementById('paymentForm').style.display = 'block';
-            document.getElementById('paymentStatus').style.display = 'none';
-          }
-        });
     }
 
     // Handle modal close
@@ -289,7 +210,7 @@
     if (cancelButton) {
       cancelButton.addEventListener('click', function () {
         console.log('Payment cancelled by user');
-        // You might want to redirect to previous page or show a message
+        window.location.href = `/enter-details/${"{{ flow }}"}`;
       });
     }
 
@@ -297,10 +218,10 @@
     const paymentModal = document.getElementById('paymentModal');
     if (paymentModal) {
       paymentModal.addEventListener('hide.bs.modal', function (e) {
-        const paymentStatus = document.getElementById('paymentStatus');
-        if (paymentStatus && paymentStatus.style.display !== 'none') {
+        const payButton = document.getElementById('payButton');
+        if (payButton && payButton.disabled) {
           e.preventDefault();
-          alert('Please wait for payment processing to complete or cancel the payment first.');
+          alert('Payment is being processed. Please wait...');
         }
       });
     }
@@ -308,41 +229,44 @@
 </script>
 
 <style>
-  .payment-info .alert {
-    border-left: 4px solid #17a2b8;
+  .modal-content {
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
   }
 
-  .payment-details .card {
-    border-left: 4px solid #28a745;
+  .modal-header {
+    padding: 1.5rem 1.5rem 0.5rem;
   }
 
-  .input-group-text {
+  .modal-body {
+    padding: 0 1.5rem 1.5rem;
+  }
+
+  .form-control-lg {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+  }
+
+  .form-control-lg:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+  }
+
+  .btn-lg {
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-size: 1.1rem;
+  }
+
+  .alert-light {
     background-color: #f8f9fa;
-    border-right: none;
-  }
-
-  #phoneNumber {
-    border-left: none;
-  }
-
-  #paymentStatus .alert-warning {
-    border-left: 4px solid #ffc107;
-  }
-
-  #paymentError {
-    border-left: 4px solid #dc3545;
-  }
-
-  .spinner-border {
-    width: 2rem;
-    height: 2rem;
+    border-color: #e9ecef;
   }
 
   .modal-backdrop {
     opacity: 0.5 !important;
   }
 
-  /* Ensure modal is properly displayed */
   .modal {
     z-index: 1060;
   }

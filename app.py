@@ -640,6 +640,56 @@ def mark_payment_confirmed_by_account(account_number, mpesa_receipt, amount=None
         print(f"❌ Error marking payment confirmed by account: {str(e)}")
         return False
 
+# --- Course Processing Functions ---
+def process_courses_after_payment(email, index_number, flow):
+    """Process and save courses after payment confirmation"""
+    print(f"🎯 Processing courses for {flow} after payment confirmation")
+    
+    try:
+        qualifying_courses = []
+        user_grades = {}
+        user_mean_grade = None
+        user_cluster_points = {}
+        
+        # Get the appropriate data based on flow
+        if flow == 'degree':
+            user_grades = session.get('degree_grades', {})
+            user_cluster_points = session.get('degree_cluster_points', {})
+            qualifying_courses = get_qualifying_courses(user_grades, user_cluster_points)
+            
+        elif flow == 'diploma':
+            user_grades = session.get('diploma_grades', {})
+            user_mean_grade = session.get('diploma_mean_grade', '')
+            qualifying_courses = get_qualifying_diploma_courses(user_grades, user_mean_grade)
+            
+        elif flow == 'certificate':
+            user_grades = session.get('certificate_grades', {})
+            user_mean_grade = session.get('certificate_mean_grade', '')
+            qualifying_courses = get_qualifying_certificate_courses(user_grades, user_mean_grade)
+            
+        elif flow == 'artisan':
+            user_grades = session.get('artisan_grades', {})
+            user_mean_grade = session.get('artisan_mean_grade', '')
+            qualifying_courses = get_qualifying_artisan_courses(user_grades, user_mean_grade)
+            
+        elif flow == 'kmtc':
+            user_grades = session.get('kmtc_grades', {})
+            user_mean_grade = session.get('kmtc_mean_grade', '')
+            qualifying_courses = get_qualifying_kmtc_courses(user_grades, user_mean_grade)
+        
+        # Save courses to database
+        if qualifying_courses:
+            save_user_courses(email, index_number, flow, qualifying_courses)
+            print(f"✅ Processed and saved {len(qualifying_courses)} {flow} courses")
+            return True
+        else:
+            print(f"⚠️ No qualifying courses found for {flow}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error processing courses after payment: {str(e)}")
+        return False
+
 # --- MPesa Integration Functions ---
 def get_mpesa_access_token():
     """Get MPesa access token for authentication"""
@@ -744,14 +794,18 @@ def initiate_stk_push(phone, amount=1):
 
 # --- Pricing and Category Management Functions ---
 def has_user_paid_for_category(email, index_number, category):
-    """Check if user has already paid for a specific category"""
+    """Check if user has already paid for a specific category - STRICTER VERSION"""
+    # First check session
+    session_paid = session.get(f'paid_{category}')
+    if session_paid:
+        print(f"✅ Session shows paid for {category}")
+        return True
+    
     if not database_connected:
-        # Check session for this specific category
-        session_key = f'paid_{category}'
-        return session.get(session_key) or False
+        return False
     
     try:
-        # Check database for this specific category payment
+        # STRICTER database check - must have confirmed payment
         payment_data = user_payments_collection.find_one({
             '$or': [
                 {'email': email},
@@ -761,11 +815,24 @@ def has_user_paid_for_category(email, index_number, category):
             'payment_confirmed': True
         })
         
-        return payment_data is not None
+        if payment_data:
+            print(f"✅ Database shows confirmed payment for {category}")
+            # Update session to reflect this
+            session[f'paid_{category}'] = True
+            return True
+        
+        return False
         
     except Exception as e:
         print(f"❌ Error checking category payment: {str(e)}")
         return False
+    
+@app.route('/clear-session')
+def clear_session():
+    """Clear session data - useful for testing and preventing session issues"""
+    session.clear()
+    flash("Session cleared successfully", "info")
+    return redirect(url_for('index'))
 
 def get_user_paid_categories(email, index_number):
     """Get list of course levels that user has already paid for"""
@@ -1127,7 +1194,7 @@ def submit_diploma_grades():
         return redirect(url_for('enter_details', flow='diploma'))
         
     except Exception as e:
-        print(f"❌ Error in submit_diploma_grades: {str(e)}")
+        print(f"❌ Error in submit_diploma-grades: {str(e)}")
         flash("An error occurred while processing your request", "error")
         return redirect(url_for('diploma'))
 
@@ -1154,7 +1221,7 @@ def submit_certificate_grades():
         return redirect(url_for('enter_details', flow='certificate'))
         
     except Exception as e:
-        print(f"❌ Error in submit_certificate_grades: {str(e)}")
+        print(f"❌ Error in submit_certificate-grades: {str(e)}")
         flash("An error occurred while processing your request", "error")
         return redirect(url_for('certificate'))
 
@@ -1181,7 +1248,7 @@ def submit_artisan_grades():
         return redirect(url_for('enter_details', flow='artisan'))
         
     except Exception as e:
-        print(f"❌ Error in submit_artisan_grades: {str(e)}")
+        print(f"❌ Error in submit_artisan-grades: {str(e)}")
         flash("An error occurred while processing your request", "error")
         return redirect(url_for('artisan'))
 
@@ -1208,7 +1275,7 @@ def submit_kmtc_grades():
         return redirect(url_for('enter_details', flow='kmtc'))
         
     except Exception as e:
-        print(f"❌ Error in submit_kmtc_grades: {str(e)}")
+        print(f"❌ Error in submit_kmtc-grades: {str(e)}")
         flash("An error occurred while processing your request", "error")
         return redirect(url_for('kmtc'))
 
@@ -1233,10 +1300,24 @@ def enter_details(flow):
         flash("Invalid index number format. Must be 11 digits, slash, 4 digits (e.g., 12345678901/2024)", "error")
         return redirect(url_for('enter_details', flow=flow))
     
-    # Check if user has already paid for this SPECIFIC category
+    # 🔥 STRICTER CHECK: Check if user has already paid for this SPECIFIC category
     if has_user_paid_for_category(email, index_number, flow):
+        print(f"🚫 User {email} already paid for {flow}")
         flash(f"You have already paid for {flow.upper()} courses. Please use 'Already Made Payment' to view your results.", "warning")
         return redirect(url_for('index'))
+    
+    # 🔥 ADDITIONAL CHECK: Check if user is currently in process for this category
+    existing_session_flow = session.get('current_flow')
+    existing_session_email = session.get('email')
+    existing_session_index = session.get('index_number')
+    
+    if (existing_session_flow == flow and 
+        existing_session_email == email and 
+        existing_session_index == index_number and
+        session.get(f'paid_{flow}')):
+        print(f"🚫 User trying to access same category again: {flow}")
+        flash(f"You are already viewing {flow.upper()} courses. Please use your existing session.", "warning")
+        return redirect(url_for('show_results', flow=flow))
     
     # Check if user already has any paid categories to determine pricing
     existing_categories = get_user_paid_categories(email, index_number)
@@ -1249,6 +1330,9 @@ def enter_details(flow):
     session['current_flow'] = flow
     session['payment_amount'] = amount
     session['is_first_category'] = is_first_category
+    
+    # Clear any previous payment status for this flow to prevent conflicts
+    session[f'paid_{flow}'] = False
     
     # Save initial payment record with amount
     save_user_payment(email, index_number, flow, amount=amount)
@@ -1309,7 +1393,7 @@ def payment(flow):
             'ResponseCode': '0', 
             'transaction_ref': transaction_ref,
             'amount': amount,
-            'redirect_url': url_for('payment_wait', flow=flow)
+            'redirect_url': url_for('payment_wait', flow=flow, transaction_ref=transaction_ref)
         }
 
     error_message = result.get('errorDescription') or result.get('errorMessage') or 'Failed to initiate payment. Try again.'
@@ -1319,9 +1403,9 @@ def payment(flow):
 def payment_wait(flow):
     email = session.get('email')
     index_number = session.get('index_number')
-    transaction_ref = None
+    transaction_ref = request.args.get('transaction_ref')
     
-    if email and index_number:
+    if email and index_number and not transaction_ref:
         user_payment = get_user_payment(email, index_number, flow)
         if user_payment:
             transaction_ref = user_payment.get('transaction_ref')
@@ -1331,6 +1415,41 @@ def payment_wait(flow):
                          transaction_ref=transaction_ref,
                          check_status_url=url_for('check_payment_status', flow=flow))
 
+@app.route('/check-courses-ready/<flow>')
+def check_courses_ready(flow):
+    """Check if courses have been processed and are ready to display"""
+    email = session.get('email')
+    index_number = session.get('index_number')
+    
+    if not email or not index_number:
+        return jsonify({'ready': False, 'error': 'Session data missing'})
+    
+    # Check if courses exist in database for this user and flow
+    courses_data = get_user_courses_data(email, index_number, flow)
+    
+    if courses_data and courses_data.get('courses'):
+        # Courses are ready
+        return jsonify({
+            'ready': True,
+            'redirect_url': url_for('show_results', flow=flow)
+        })
+    else:
+        # Courses not ready yet - try to process them
+        print(f"🔄 Courses not found, attempting to process for {flow}")
+        success = process_courses_after_payment(email, index_number, flow)
+        
+        if success:
+            # Check again after processing
+            courses_data = get_user_courses_data(email, index_number, flow)
+            if courses_data and courses_data.get('courses'):
+                return jsonify({
+                    'ready': True,
+                    'redirect_url': url_for('show_results', flow=flow)
+                })
+        
+        # Courses not ready yet
+        return jsonify({'ready': False})
+
 @app.route('/check-payment-status/<flow>')
 def check_payment_status(flow):
     email = session.get('email')
@@ -1339,26 +1458,46 @@ def check_payment_status(flow):
     if not email or not index_number:
         return {'paid': False, 'error': 'Session data missing'}
     
-    user_payment = get_user_payment(email, index_number, flow)
-    session_paid = session.get(f'paid_{flow}') or session.get('payment_confirmed')
+    # 🔥 MORE RELIABLE PAYMENT CHECK
+    payment_confirmed = False
     
-    payment_confirmed = (
-        (user_payment and user_payment.get('payment_confirmed')) or 
-        session_paid
-    )
+    # Check database first
+    if database_connected:
+        user_payment = user_payments_collection.find_one({
+            'email': email, 
+            'index_number': index_number, 
+            'level': flow,
+            'payment_confirmed': True
+        })
+        if user_payment:
+            payment_confirmed = True
+            session[f'paid_{flow}'] = True
+            session['payment_confirmed'] = True
+            print(f"✅ Database confirms payment for {flow}")
+    
+    # If not in database, check session
+    if not payment_confirmed:
+        session_paid = session.get(f'paid_{flow}') or session.get('payment_confirmed')
+        if session_paid:
+            payment_confirmed = True
+            print(f"✅ Session confirms payment for {flow}")
     
     if payment_confirmed:
-        session[f'paid_{flow}'] = True
-        session['payment_confirmed'] = True
         session.modified = True
+        
+        # Check if courses need to be processed
+        courses_data = get_user_courses_data(email, index_number, flow)
+        if not courses_data or not courses_data.get('courses'):
+            print(f"🔄 Payment confirmed but no courses found, processing now...")
+            process_courses_after_payment(email, index_number, flow)
         
         return {
             'paid': True,
             'redirect_url': url_for('show_results', flow=flow)
         }
     else:
+        print(f"❌ Payment not confirmed for {flow}")
         return {'paid': False}
-
 # --- MPesa Callback Routes ---
 @app.route('/mpesa/callback', methods=['POST'])
 def mpesa_callback():
@@ -1381,6 +1520,19 @@ def mpesa_callback():
             result = mark_payment_confirmed(transaction_ref, mpesa_receipt)
             if result:
                 print(f"✅ Payment callback processed successfully: {transaction_ref}")
+                
+                # 🔥 NEW: Get user details and process courses
+                if database_connected:
+                    payment_data = user_payments_collection.find_one({'transaction_ref': transaction_ref})
+                    if payment_data:
+                        email = payment_data.get('email')
+                        index_number = payment_data.get('index_number')
+                        flow = payment_data.get('level')
+                        
+                        if email and index_number and flow:
+                            print(f"🚀 Triggering course processing for {flow}")
+                            process_courses_after_payment(email, index_number, flow)
+                
                 return {'success': True}, 200
             else:
                 print(f"❌ Failed to mark payment confirmed: {transaction_ref}")
@@ -1392,6 +1544,9 @@ def mpesa_callback():
     except Exception as e:
         print(f"❌ Error processing MPesa callback: {str(e)}")
         return {'success': False}, 400
+@app.route('/about')
+def about():
+    return render_template('about.html')
 
 @app.route('/mpesa/confirmation', methods=['POST'])
 def mpesa_confirmation():
@@ -1421,16 +1576,46 @@ def show_results(flow):
         flash("Please complete the qualification process first", "error")
         return redirect(url_for('index'))
     
+    # 🔥 STRICTER PAYMENT VERIFICATION
     user_payment = get_user_payment(email, index_number, flow)
-    session_paid = session.get(f'paid_{flow}') or session.get('payment_confirmed')
+    session_paid = session.get(f'paid_{flow}')
     
-    if not user_payment and not session_paid:
+    # Check if payment is confirmed in database OR session
+    payment_confirmed = False
+    if user_payment and user_payment.get('payment_confirmed'):
+        payment_confirmed = True
+        # Ensure session is updated
+        session[f'paid_{flow}'] = True
+    elif session_paid:
+        payment_confirmed = True
+        # If only in session, try to verify with database
+        if database_connected and user_payment:
+            # Double-check database
+            fresh_payment = user_payments_collection.find_one({
+                'email': email, 
+                'index_number': index_number, 
+                'level': flow,
+                'payment_confirmed': True
+            })
+            if not fresh_payment:
+                payment_confirmed = False
+                session[f'paid_{flow}'] = False
+    
+    if not payment_confirmed:
+        print(f"❌ Payment not confirmed for {flow}. User payment: {user_payment}, Session paid: {session_paid}")
         flash('Please complete payment to view your results.', 'error')
         return redirect(url_for('payment', flow=flow))
     
-    if user_payment and not user_payment.get('payment_confirmed') and not session_paid:
-        flash('Payment not confirmed yet. Please wait or contact support.', 'error')
-        return redirect(url_for('payment_wait', flow=flow))
+    # 🔥 PREVENT DUPLICATE ACCESS TO SAME CATEGORY
+    # Check if user is trying to access same category again without proper flow
+    current_flow = session.get('current_flow')
+    if current_flow != flow:
+        # User might be trying to access results directly without proper flow
+        print(f"⚠️ Suspicious access: current_flow={current_flow}, requested_flow={flow}")
+        # Still allow if they have paid, but log it
+        if not has_user_paid_for_category(email, index_number, flow):
+            flash('Invalid access attempt. Please complete the qualification process.', 'error')
+            return redirect(url_for('index'))
 
     # Store the current flow for basket redirects
     session['current_flow'] = flow
@@ -1442,35 +1627,43 @@ def show_results(flow):
     user_cluster_points = {}
     
     try:
-        if flow == 'degree':
-            user_grades = session.get('degree_grades', {})
-            user_cluster_points = session.get('degree_cluster_points', {})
-            qualifying_courses = get_qualifying_courses(user_grades, user_cluster_points)
-            
-        elif flow == 'diploma':
-            user_grades = session.get('diploma_grades', {})
-            user_mean_grade = session.get('diploma_mean_grade', '')
-            qualifying_courses = get_qualifying_diploma_courses(user_grades, user_mean_grade)
-            
-        elif flow == 'certificate':
-            user_grades = session.get('certificate_grades', {})
-            user_mean_grade = session.get('certificate_mean_grade', '')
-            qualifying_courses = get_qualifying_certificate_courses(user_grades, user_mean_grade)
-            
-        elif flow == 'artisan':
-            user_grades = session.get('artisan_grades', {})
-            user_mean_grade = session.get('artisan_mean_grade', '')
-            qualifying_courses = get_qualifying_artisan_courses(user_grades, user_mean_grade)
-            
-        elif flow == 'kmtc':
-            user_grades = session.get('kmtc_grades', {})
-            user_mean_grade = session.get('kmtc_mean_grade', '')
-            qualifying_courses = get_qualifying_kmtc_courses(user_grades, user_mean_grade)
-            
+        # Get courses from database first (if they exist)
+        courses_data = get_user_courses_data(email, index_number, flow)
+        if courses_data and courses_data.get('courses'):
+            qualifying_courses = courses_data['courses']
+            print(f"✅ Loaded {len(qualifying_courses)} courses from database for {flow}")
         else:
-            flash("Invalid flow type", "error")
-            return redirect(url_for('index'))
-
+            # Generate courses if not in database
+            print(f"🔄 Courses not in database, generating for {flow}")
+            if flow == 'degree':
+                user_grades = session.get('degree_grades', {})
+                user_cluster_points = session.get('degree_cluster_points', {})
+                qualifying_courses = get_qualifying_courses(user_grades, user_cluster_points)
+                
+            elif flow == 'diploma':
+                user_grades = session.get('diploma_grades', {})
+                user_mean_grade = session.get('diploma_mean_grade', '')
+                qualifying_courses = get_qualifying_diploma_courses(user_grades, user_mean_grade)
+                
+            elif flow == 'certificate':
+                user_grades = session.get('certificate_grades', {})
+                user_mean_grade = session.get('certificate_mean_grade', '')
+                qualifying_courses = get_qualifying_certificate_courses(user_grades, user_mean_grade)
+                
+            elif flow == 'artisan':
+                user_grades = session.get('artisan_grades', {})
+                user_mean_grade = session.get('artisan_mean_grade', '')
+                qualifying_courses = get_qualifying_artisan_courses(user_grades, user_mean_grade)
+                
+            elif flow == 'kmtc':
+                user_grades = session.get('kmtc_grades', {})
+                user_mean_grade = session.get('kmtc_mean_grade', '')
+                qualifying_courses = get_qualifying_kmtc_courses(user_grades, user_mean_grade)
+            
+            # Save courses to database
+            if qualifying_courses:
+                save_user_courses(email, index_number, flow, qualifying_courses)
+            
         # Convert ObjectId to string for JSON serialization in template
         converted_courses = []
         for course in qualifying_courses:
@@ -1479,9 +1672,6 @@ def show_results(flow):
                 course_dict['_id'] = str(course_dict['_id'])
             converted_courses.append(course_dict)
         qualifying_courses = converted_courses
-
-        # Save courses to database/session
-        save_user_courses(email, index_number, flow, qualifying_courses)
         
         # Group courses by collection with proper names
         courses_by_collection = {}
@@ -1507,6 +1697,8 @@ def show_results(flow):
             if existing_basket:
                 session['course_basket'] = existing_basket
         
+        print(f"🎯 Displaying {len(qualifying_courses)} courses for {flow}")
+        
         return render_template('collection_results.html', 
                              courses=qualifying_courses,
                              courses_by_collection=courses_by_collection,
@@ -1523,7 +1715,6 @@ def show_results(flow):
         print(f"❌ Error in show_results: {str(e)}")
         flash("An error occurred while generating your results", "error")
         return redirect(url_for('index'))
-
 # --- Collection-based Results Routes ---
 @app.route('/collection-courses/<flow>/<collection_name>')
 def show_collection_courses(flow, collection_name):

@@ -25,31 +25,87 @@
         </div>
     </div>
 
-<!-- Empty Basket State -->
-{% if basket_count == 0 %}
-<div class="alert alert-info text-center py-5">
-    <div class="mb-4">
-        <i class="fas fa-basket-shopping fa-3x text-info mb-3"></i>
-        
-    </div>
-    <p class="mb-3">You haven't added any courses to your basket yet.</p>
+    <!-- Empty Basket State -->
+    {% if basket_count == 0 %}
+    <div class="alert alert-info text-center py-5">
+        <div class="mb-4">
+            <i class="fas fa-basket-shopping fa-3x text-info mb-3"></i>
+            <h4 class="text-info">Your Basket is Empty</h4>
+        </div>
+        <p class="mb-3">You haven't added any courses to your basket yet.</p>
 
-    <!-- Smart redirect buttons based on user type -->
-    <div class="d-flex justify-content-center gap-2 flex-wrap">
-        {% if session.get('verified_payment') %}
-        <!-- For verified users - show back to collection results -->
-        {% set current_level = session.get('current_level', 'degree') %}
-        <a href="{{ url_for('show_verified_level_results', level=current_level, index=session.get('verified_index'), receipt=session.get('verified_receipt')) }}"
-            class="btn btn-primary">
-            <i class="fas fa-arrow-left me-1"></i>Back to {{ current_level|title }} Courses
-        </a>
-        {% else %}
-        <!-- For regular users - show back to results based on current flow -->
-        {% set current_flow = session.get('current_flow', 'degree') %}
-        <a href="{{ url_for('show_results', flow=current_flow) }}" class="btn btn-primary">
-            <i class="fas fa-arrow-left me-1"></i>Back to {{ current_flow|title }} Courses
-        </a>
-        {% endif %}
+        <!-- Smart redirect buttons based on user type and current category -->
+        <div class="d-flex justify-content-center gap-2 flex-wrap">
+            {% if session.get('verified_payment') %}
+                <!-- For verified users - show back to collection results -->
+                {% set current_level = session.get('current_level', session.get('current_flow', 'degree')) %}
+                <a href="{{ url_for('show_verified_level_results', level=current_level, index=session.get('verified_index'), receipt=session.get('verified_receipt')) }}"
+                    class="btn btn-primary">
+                    <i class="fas fa-arrow-left me-1"></i>Back to {{ current_level|title }} Courses
+                </a>
+            {% else %}
+                <!-- For regular users - dynamically determine the current category -->
+                {% set current_flow = session.get('current_flow') %}
+                
+                {# Check which category the user was browsing #}
+                {% if session.get('degree_data_submitted') or session.get('degree_grades') %}
+                    {% set current_category = 'degree' %}
+                {% elif session.get('diploma_data_submitted') or session.get('diploma_grades') %}
+                    {% set current_category = 'diploma' %}
+                {% elif session.get('certificate_data_submitted') or session.get('certificate_grades') %}
+                    {% set current_category = 'certificate' %}
+                {% elif session.get('artisan_data_submitted') or session.get('artisan_grades') %}
+                    {% set current_category = 'artisan' %}
+                {% elif session.get('kmtc_data_submitted') or session.get('kmtc_grades') %}
+                    {% set current_category = 'kmtc' %}
+                {% else %}
+                    {% set current_category = current_flow or 'degree' %}
+                {% endif %}
+
+                {# Show appropriate back button based on detected category #}
+                {% if current_category == 'degree' %}
+                    <a href="{{ url_for('show_results', flow='degree') }}" class="btn btn-primary">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Degree Courses
+                    </a>
+                {% elif current_category == 'diploma' %}
+                    <a href="{{ url_for('show_results', flow='diploma') }}" class="btn btn-primary">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Diploma Courses
+                    </a>
+                {% elif current_category == 'certificate' %}
+                    <a href="{{ url_for('show_results', flow='certificate') }}" class="btn btn-primary">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Certificate Courses
+                    </a>
+                {% elif current_category == 'artisan' %}
+                    <a href="{{ url_for('show_results', flow='artisan') }}" class="btn btn-primary">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Artisan Courses
+                    </a>
+                {% elif current_category == 'kmtc' %}
+                    <a href="{{ url_for('show_results', flow='kmtc') }}" class="btn btn-primary">
+                        <i class="fas fa-arrow-left me-1"></i>Back to KMTC Courses
+                    </a>
+                {% else %}
+                    {# Fallback to generic button if category can't be determined #}
+                    <a href="{{ url_for('index') }}" class="btn btn-primary">
+                        <i class="fas fa-home me-1"></i>Back to Home
+                    </a>
+                {% endif %}
+            {% endif %}
+
+            <!-- Always show browse all categories option -->
+            <a href="{{ url_for('index') }}" class="btn btn-outline-primary">
+                <i class="fas fa-search me-1"></i>Browse All Categories
+            </a>
+        </div>
+
+        <!-- Additional helpful information -->
+        <div class="mt-4">
+            <small class="text-muted">
+                <i class="fas fa-lightbulb me-1"></i>
+                Tip: Browse your qualified courses and click the "Add to Basket" button to compare them here.
+            </small>
+        </div>
+    </div>
+
     {% else %}
     <!-- Basket Items Grid -->
     <div id="basket-container">
@@ -71,8 +127,7 @@
                             <div class="d-flex flex-column">
                                 <small class="text-muted mb-1">Programme Code</small>
                                 <span class="badge bg-dark fs-6">
-                                    <i class="fas fa-hashtag me-1"></i>{{ course.programme_code or course.course_code or
-                                    'N/A' }}
+                                    <i class="fas fa-hashtag me-1"></i>{{ course.programme_code or course.course_code or 'N/A' }}
                                 </span>
                             </div>
                             <div class="d-flex flex-column align-items-end">
@@ -136,8 +191,7 @@
                             <div class="detail-item">
                                 <small class="text-muted">
                                     <i class="fas fa-clock me-1"></i>
-                                    Added: {% if course.added_at %}{{ course.added_at[:16]|replace('T', ' ') }}{% else
-                                    %}Recently{% endif %}
+                                    Added: {% if course.added_at %}{{ course.added_at[:16]|replace('T', ' ') }}{% else %}Recently{% endif %}
                                 </small>
                             </div>
                         </div>
@@ -180,7 +234,6 @@
             </div>
             <div class="col-md-6 text-md-end mt-3 mt-md-0">
                 <div class="d-flex flex-column flex-md-row gap-2 justify-content-md-end">
-                   
                     <button class="btn btn-info" id="printBasketBtn">
                         <i class="fas fa-print me-1"></i>Print Basket
                     </button>
@@ -231,52 +284,13 @@
         });
     }
 
-    // Save selection
-    const saveSelectionBtn = document.getElementById('saveSelectionBtn');
-    if (saveSelectionBtn) {
-        saveSelectionBtn.addEventListener('click', function () {
-            this.disabled = true;
-            this.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving...';
-
-            // Get current basket from session
-            const currentBasket = JSON.parse(sessionStorage.getItem('course_basket') || '[]');
-            
-            fetch('/save-basket', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(currentBasket)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showAlert('✅ Your course selection has been saved! You can return anytime to review your preferred courses.', 'success');
-                    this.disabled = false;
-                    this.innerHTML = '<i class="fas fa-save me-1"></i>Save Selection';
-                } else {
-                    showAlert('❌ Failed to save selection: ' + data.error, 'error');
-                    this.disabled = false;
-                    this.innerHTML = '<i class="fas fa-save me-1"></i>Save Selection';
-                }
-            })
-            .catch(error => {
-                console.error('Save error:', error);
-                showAlert('❌ Error saving selection', 'error');
-                this.disabled = false;
-                this.innerHTML = '<i class="fas fa-save me-1"></i>Save Selection';
-            });
+    // Print basket
+    const printBasketBtn = document.getElementById('printBasketBtn');
+    if (printBasketBtn) {
+        printBasketBtn.addEventListener('click', function () {
+            window.print();
         });
     }
-
-    
-       // Print basket
-       const printBasketBtn = document.getElementById('printBasketBtn');
-       if (printBasketBtn) {
-           printBasketBtn.addEventListener('click', function () {
-               window.print();
-           });
-       }
    });
 
 function removeFromBasket(basketId, courseName) {
