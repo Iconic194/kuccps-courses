@@ -9,6 +9,9 @@
         crossorigin="anonymous" />
     <link rel="icon" href="https://en.wikipedia.org/static/favicon/wikipedia.ico" type="image/x-icon" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+        integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
         html,
         body {
@@ -42,12 +45,12 @@
             .modal-dialog.modal-lg {
                 margin: 1rem;
             }
-            
+
             #courseLevels {
                 justify-content: center;
             }
         }
-        
+
         .main-wrapper {
             display: flex;
             flex-direction: column;
@@ -132,13 +135,13 @@
         }
 
         /* Screen-reader only helper */
-        .visually-hidden { 
-            position: absolute !important; 
-            height: 1px; 
-            width: 1px; 
-            overflow: hidden; 
-            clip: rect(1px, 1px, 1px, 1px); 
-            white-space: nowrap; 
+        .visually-hidden {
+            position: absolute !important;
+            height: 1px;
+            width: 1px;
+            overflow: hidden;
+            clip: rect(1px, 1px, 1px, 1px);
+            white-space: nowrap;
         }
     </style>
     {% block links %}{% endblock %}
@@ -147,7 +150,8 @@
 <body>
     <div class="main-wrapper">
         <!-- Hamburger Button -->
-        <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation menu" title="Open menu" aria-controls="sidebarMenu" aria-expanded="false">
+        <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Toggle navigation menu" title="Open menu"
+            aria-controls="sidebarMenu" aria-expanded="false">
             <i class="fa fa-bars" aria-hidden="true"></i>
             <span class="visually-hidden">Toggle navigation menu</span>
         </button>
@@ -173,7 +177,8 @@
         </div>
 
         <!-- Overlay -->
-        <div class="overlay" id="overlay" onclick="toggleSidebar()" role="button" aria-label="Close navigation menu"></div>
+        <div class="overlay" id="overlay" onclick="toggleSidebar()" role="button" aria-label="Close navigation menu">
+        </div>
 
         <!-- Main Content -->
         <div class="main-content container">
@@ -186,7 +191,8 @@
                 {{ message }}
                 {% if category == 'warning' %}
                 <div class="mt-2">
-                    <a href="#" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#verifyPaymentModal">
+                    <a href="#" class="btn btn-sm btn-primary" data-bs-toggle="modal"
+                        data-bs-target="#verifyPaymentModal">
                         <i class="fa fa-credit-card me-1"></i>Already Made Payment
                     </a>
                 </div>
@@ -196,7 +202,7 @@
             {% endfor %}
             {% endif %}
             {% endwith %}
-        
+
             {% block hero %}{% endblock %}
             {% block course_buttons %}{% endblock %}
             {% block content %}{% endblock %}
@@ -208,7 +214,8 @@
         </div>
 
         <!-- Help Modal -->
-        <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" role="dialog" aria-modal="true">
+        <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" role="dialog"
+            aria-modal="true">
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
@@ -257,8 +264,9 @@
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="index_number_verify" class="form-label">KCSE Index Number *</label>
-                                        <input type="text" class="form-control" id="index_number_verify" name="index_number"
-                                            placeholder="12345678902/2025" required pattern="\d{11}/\d{4}">
+                                        <input type="text" class="form-control" id="index_number_verify"
+                                            name="index_number" placeholder="12345678902/2025" required
+                                            pattern="\d{11}/\d{4}">
                                         <div class="form-text">Format: 12345678902/2025</div>
                                     </div>
                                 </div>
@@ -340,7 +348,7 @@
             const overlay = document.getElementById('overlay');
             const isShowing = sidebar.classList.toggle('show');
             overlay.classList.toggle('show');
-            
+
             // Update menu toggle accessibility and sidebar link tabbability
             const menuToggle = document.querySelector('.menu-toggle');
             if (isShowing) {
@@ -479,18 +487,18 @@
 
                         // Load and show user's saved basket
                         fetch('/load-basket')
-                        .then(response => response.json())
-                        .then(basketData => {
-                            if (basketData.success) {
-                                showBasketNavigation(basketData.basket_count);
-                                console.log('✅ Loaded saved basket with', basketData.basket_count, 'courses');
-                                // Store verification state
-                                sessionStorage.setItem('userVerified', 'true');
-                            }
-                        })
-                        .catch(error => {
-                            console.log('No previous basket found');
-                        });
+                            .then(response => response.json())
+                            .then(basketData => {
+                                if (basketData.success) {
+                                    showBasketNavigation(basketData.basket_count);
+                                    console.log('✅ Loaded saved basket with', basketData.basket_count, 'courses');
+                                    // Store verification state
+                                    sessionStorage.setItem('userVerified', 'true');
+                                }
+                            })
+                            .catch(error => {
+                                console.log('No previous basket found');
+                            });
 
                         // Scroll to preview
                         previewDiv.scrollIntoView({ behavior: 'smooth' });
@@ -518,7 +526,7 @@
                     loadingDiv.style.display = 'none';
                     const submitBtn = document.getElementById('verifySubmitBtn');
                     if (submitBtn) submitBtn.disabled = false;
-                    
+
                     // Only hide basket if user is not verified
                     if (!sessionStorage.getItem('userVerified')) {
                         hideBasketNavigation();
@@ -562,17 +570,18 @@
             // Check if user is already verified and show basket
             if (sessionStorage.getItem('userVerified')) {
                 fetch('/load-basket')
-                .then(response => response.json())
-                .then(basketData => {
-                    if (basketData.success && basketData.basket_count > 0) {
-                        showBasketNavigation(basketData.basket_count);
-                    }
-                })
-                .catch(error => {
-                    console.log('No saved basket found');
-                });
+                    .then(response => response.json())
+                    .then(basketData => {
+                        if (basketData.success && basketData.basket_count > 0) {
+                            showBasketNavigation(basketData.basket_count);
+                        }
+                    })
+                    .catch(error => {
+                        console.log('No saved basket found');
+                    });
             }
         });
     </script>
 </body>
+
 </html>
