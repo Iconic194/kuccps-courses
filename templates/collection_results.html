@@ -274,166 +274,304 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        // Search functionality
-        const searchBtn = document.getElementById('searchBtn');
-        const courseSearch = document.getElementById('courseSearch');
-        const clearSearch = document.getElementById('clearSearch');
-        const clearSearchResults = document.getElementById('clear-search-results');
-        const searchInfo = document.getElementById('search-info');
-        const searchInfoText = document.getElementById('search-info-text');
-        const visibleCourseCount = document.getElementById('visible-course-count');
-        const coursesGrid = document.getElementById('courses-grid');
+            // Search functionality - Client-side only
+            const searchBtn = document.getElementById('searchBtn');
+            const courseSearch = document.getElementById('courseSearch');
+            const clearSearch = document.getElementById('clearSearch');
+            const clearSearchResults = document.getElementById('clear-search-results');
+            const searchInfo = document.getElementById('search-info');
+            const searchInfoText = document.getElementById('search-info-text');
+            const visibleCourseCount = document.getElementById('visible-course-count');
+            const coursesGrid = document.getElementById('courses-grid');
 
-        if (searchBtn) {
-            searchBtn.addEventListener('click', performSearch);
-        }
+            // Store all course items for search
+            const allCourseItems = Array.from(document.querySelectorAll('.course-item'));
 
-        if (courseSearch) {
-            courseSearch.addEventListener('input', function () {
-                const query = this.value.trim();
-                if (query.length >= 2) {
-                    performSearch();
-                } else if (query.length === 0) {
+            console.log(`🔍 Loaded ${allCourseItems.length} courses for search`);
+
+            // Search functionality
+            function performSearch() {
+                const query = courseSearch.value.trim().toLowerCase();
+                console.log(`🔍 Searching for: "${query}"`);
+
+                if (query) {
+                    clearSearch.style.display = 'block';
+                    filterCoursesBySearch(query);
+                } else {
                     clearSearch.style.display = 'none';
                     showAllCourses();
                 }
-            });
-
-            courseSearch.addEventListener('keypress', function (e) {
-                if (e.key === 'Enter') performSearch();
-            });
-        }
-
-        if (clearSearch) {
-            clearSearch.addEventListener('click', function () {
-                courseSearch.value = '';
-                clearSearch.style.display = 'none';
-                showAllCourses();
-            });
-        }
-
-        if (clearSearchResults) {
-            clearSearchResults.addEventListener('click', function () {
-                courseSearch.value = '';
-                clearSearch.style.display = 'none';
-                showAllCourses();
-            });
-        }
-
-        function performSearch() {
-            const query = courseSearch.value.trim();
-
-            if (query) {
-                clearSearch.style.display = 'block';
-                filterCoursesBySearch(query);
-            } else {
-                clearSearch.style.display = 'none';
-                showAllCourses();
             }
-        }
 
-        function filterCoursesBySearch(query) {
-            const searchTerm = query.toLowerCase();
-            let visibleCount = 0;
+            function filterCoursesBySearch(query) {
+                let visibleCount = 0;
+                const searchTerm = query.toLowerCase();
 
-            document.querySelectorAll('.course-item').forEach(item => {
-                const courseName = item.getAttribute('data-course-name') || '';
-                const courseCode = item.getAttribute('data-course-code') || '';
-                const institution = item.getAttribute('data-institution') || '';
-                const cluster = item.getAttribute('data-cluster') || '';
-                const collection = item.getAttribute('data-collection-name') || '';
+                allCourseItems.forEach(item => {
+                    // Get searchable text from the course card
+                    const cardText = getCardText(item).toLowerCase();
+                    const matches = cardText.includes(searchTerm);
 
-                const matches = courseName.includes(searchTerm) ||
-                    courseCode.includes(searchTerm) ||
-                    institution.includes(searchTerm) ||
-                    cluster.includes(searchTerm) ||
-                    collection.includes(searchTerm);
+                    if (matches) {
+                        item.style.display = 'block';
+                        visibleCount++;
+                        highlightSearchTerm(item, searchTerm);
+                    } else {
+                        item.style.display = 'none';
+                        removeHighlights(item);
+                    }
+                });
 
-                if (matches) {
-                    item.classList.remove('d-none');
-                    visibleCount++;
-                    highlightSearchTerm(item, searchTerm);
-                } else {
-                    item.classList.add('d-none');
-                    removeHighlights(item);
+                updateSearchResults(query, visibleCount);
+            }
+
+            function getCardText(courseItem) {
+                // Extract all text content from the course card for searching
+                const card = courseItem.querySelector('.course-card');
+                if (card) {
+                    return card.textContent || '';
                 }
-            });
+                return '';
+            }
 
-            updateCourseCount(visibleCount);
-            updateSearchInfo(query, visibleCount);
+            function highlightSearchTerm(element, searchTerm) {
+                // Remove existing highlights first
+                removeHighlights(element);
 
-            const noCoursesMessage = document.getElementById('no-courses-message');
-            const coursesContainer = document.getElementById('courses-container');
-            if (noCoursesMessage && coursesContainer) {
-                if (visibleCount === 0) {
-                    noCoursesMessage.style.display = 'block';
-                    coursesContainer.style.display = 'none';
-                    searchInfo.style.display = 'none';
-                } else {
-                    noCoursesMessage.style.display = 'none';
-                    coursesContainer.style.display = 'block';
+                const textElements = element.querySelectorAll('.card-title, .detail-value, .badge:not(.bg-danger)');
+                textElements.forEach(el => {
+                    const originalHtml = el.innerHTML;
+                    const text = el.textContent || '';
+
+                    if (text.toLowerCase().includes(searchTerm)) {
+                        const regex = new RegExp(`(${escapeRegExp(searchTerm)})`, 'gi');
+                        const highlighted = originalHtml.replace(regex, '<mark class="bg-warning p-1">$1</mark>');
+                        el.innerHTML = highlighted;
+                    }
+                });
+            }
+
+            function escapeRegExp(string) {
+                return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+
+            function removeHighlights(element) {
+                const marks = element.querySelectorAll('mark');
+                marks.forEach(mark => {
+                    const parent = mark.parentNode;
+                    if (parent) {
+                        parent.replaceChild(document.createTextNode(mark.textContent), mark);
+                        parent.normalize();
+                    }
+                });
+            }
+
+            function updateSearchResults(query, visibleCount) {
+                const totalCourses = allCourseItems.length;
+                const noCoursesMessage = document.getElementById('no-courses-message');
+                const coursesContainer = document.getElementById('courses-container');
+                const currentCollectionTitle = document.getElementById('current-collection-title');
+
+                // Update search info
+                if (searchInfoText && searchInfo) {
+                    searchInfoText.textContent = `Showing ${visibleCount} of ${totalCourses} courses for "${query}"`;
                     searchInfo.style.display = 'block';
                 }
-            }
-        }
 
-        function highlightSearchTerm(element, searchTerm) {
-            const textElements = element.querySelectorAll('.card-title, .detail-value, .badge');
-            textElements.forEach(el => {
-                const html = el.innerHTML;
-                const regex = new RegExp(`(${searchTerm})`, 'gi');
-                const highlighted = html.replace(regex, '<mark class="bg-warning">$1</mark>');
-                el.innerHTML = highlighted;
-            });
-        }
-
-        function removeHighlights(element) {
-            const marks = element.querySelectorAll('mark');
-            marks.forEach(mark => {
-                const parent = mark.parentNode;
-                parent.replaceChild(document.createTextNode(mark.textContent), mark);
-                parent.normalize();
-            });
-        }
-
-        function updateSearchInfo(query, visibleCount) {
-            if (searchInfoText && searchInfo) {
-                const totalCourses = document.querySelectorAll('.course-item').length;
-                searchInfoText.textContent = `Showing ${visibleCount} of ${totalCourses} courses for "${query}"`;
-            }
-        }
-
-        function showAllCourses() {
-            document.querySelectorAll('.course-item').forEach(item => {
-                item.classList.remove('d-none');
-                removeHighlights(item);
-            });
-            updateCourseCount();
-            searchInfo.style.display = 'none';
-
-            const noCoursesMessage = document.getElementById('no-courses-message');
-            const coursesContainer = document.getElementById('courses-container');
-            if (noCoursesMessage && coursesContainer) {
-                noCoursesMessage.style.display = 'none';
-                coursesContainer.style.display = 'block';
-            }
-        }
-
-        function updateCourseCount(count = null) {
-            const title = document.getElementById('current-collection-title');
-            const totalCourses = document.querySelectorAll('.course-item').length;
-
-            if (title) {
-                if (count !== null) {
-                    title.textContent = `Search Results (${count})`;
-                } else {
-                    title.textContent = `All {{ flow|title }} Courses (${totalCourses})`;
+                // Update title and counters
+                if (currentCollectionTitle) {
+                    currentCollectionTitle.textContent = `Search Results (${visibleCount})`;
                 }
+
+                if (visibleCourseCount) {
+                    visibleCourseCount.textContent = visibleCount;
+                }
+
+                // Show/hide no results message
+                if (noCoursesMessage && coursesContainer) {
+                    if (visibleCount === 0) {
+                        noCoursesMessage.style.display = 'block';
+                        coursesContainer.style.display = 'none';
+                        noCoursesMessage.innerHTML = `
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>No courses found for "${query}".</strong>
+                        <div class="mt-2">
+                            Try different search terms or browse all courses.
+                        </div>
+                    `;
+                    } else {
+                        noCoursesMessage.style.display = 'none';
+                        coursesContainer.style.display = 'block';
+                    }
+                }
+
+                console.log(`📊 Search complete: ${visibleCount} courses found for "${query}"`);
             }
 
-            if (visibleCourseCount) {
-                visibleCourseCount.textContent = count !== null ? count : totalCourses;
+            function showAllCourses() {
+                allCourseItems.forEach(item => {
+                    item.style.display = 'block';
+                    removeHighlights(item);
+                });
+
+                const totalCourses = allCourseItems.length;
+                const noCoursesMessage = document.getElementById('no-courses-message');
+                const coursesContainer = document.getElementById('courses-container');
+                const currentCollectionTitle = document.getElementById('current-collection-title');
+
+                // Reset UI
+                if (currentCollectionTitle) {
+                    currentCollectionTitle.textContent = `All {{ flow|title }} Courses (${totalCourses})`;
+                }
+
+                if (visibleCourseCount) {
+                    visibleCourseCount.textContent = totalCourses;
+                }
+
+                if (noCoursesMessage && coursesContainer) {
+                    noCoursesMessage.style.display = 'none';
+                    coursesContainer.style.display = 'block';
+                }
+
+                searchInfo.style.display = 'none';
+                console.log('🔄 Showing all courses');
             }
+
+            // Event listeners
+            if (searchBtn) {
+                searchBtn.addEventListener('click', performSearch);
+            }
+
+            if (courseSearch) {
+                courseSearch.addEventListener('input', function () {
+                    const query = this.value.trim();
+                    if (query.length === 0) {
+                        clearSearch.style.display = 'none';
+                        showAllCourses();
+                    } else if (query.length >= 2) {
+                        // Auto-search after 2 characters
+                        performSearch();
+                    }
+                });
+
+                courseSearch.addEventListener('keypress', function (e) {
+                    if (e.key === 'Enter') {
+                        performSearch();
+                    }
+                });
+            }
+
+            if (clearSearch) {
+                clearSearch.addEventListener('click', function () {
+                    courseSearch.value = '';
+                    clearSearch.style.display = 'none';
+                    showAllCourses();
+                });
+            }
+
+            if (clearSearchResults) {
+                clearSearchResults.addEventListener('click', function () {
+                    courseSearch.value = '';
+                    clearSearch.style.display = 'none';
+                    showAllCourses();
+                });
+            }
+
+            // Collection filtering
+            function filterCourses(collection) {
+                let visibleCount = 0;
+
+                allCourseItems.forEach(item => {
+                    const itemCollections = item.getAttribute('data-collections');
+
+                    if (collection === 'all') {
+                        item.style.display = 'block';
+                        visibleCount++;
+                    } else {
+                        if (itemCollections === collection) {
+                            item.style.display = 'block';
+                            visibleCount++;
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    }
+                });
+
+                // Update UI
+                const currentCollectionTitle = document.getElementById('current-collection-title');
+                const noCoursesMessage = document.getElementById('no-courses-message');
+                const coursesContainer = document.getElementById('courses-container');
+
+                if (collection === 'all') {
+                    currentCollectionTitle.textContent = `All {{ flow|title }} Courses ({{ courses|length }})`;
+                } else {
+                    const displayName = collection.replace(/_/g, ' ').toUpperCase();
+                    currentCollectionTitle.textContent = `${displayName} Courses (${visibleCount})`;
+                }
+
+                noCoursesMessage.style.display = visibleCount === 0 ? 'block' : 'none';
+                coursesContainer.style.display = visibleCount === 0 ? 'none' : 'block';
+
+                if (visibleCourseCount) {
+                    visibleCourseCount.textContent = visibleCount;
+                }
+
+                // Clear search when switching collections
+                courseSearch.value = '';
+                clearSearch.style.display = 'none';
+                searchInfo.style.display = 'none';
+
+                console.log(`📂 Collection filter: ${collection}, showing ${visibleCount} courses`);
+            }
+
+            function updateButtonStates(activeCollection) {
+                const collectionButtons = document.querySelectorAll('.collection-btn');
+                collectionButtons.forEach(button => {
+                    const buttonCollection = button.getAttribute('data-collection');
+                    if (buttonCollection === activeCollection) {
+                        button.classList.remove('btn-outline-primary');
+                        button.classList.add('btn-primary');
+                        button.classList.add('active');
+                    } else {
+                        button.classList.remove('btn-primary');
+                        button.classList.remove('active');
+                        button.classList.add('btn-outline-primary');
+                    }
+                });
+            }
+
+            document.querySelectorAll('.collection-btn').forEach(button => {
+                button.addEventListener('click', function () {
+                    const collection = this.getAttribute('data-collection');
+                    filterCourses(collection);
+                    updateButtonStates(collection);
+                });
+            });
+
+            // Add to basket functionality
+            document.querySelectorAll('.add-to-basket-btn').forEach(button => {
+                button.addEventListener('click', function () {
+                    const courseData = JSON.parse(this.dataset.course);
+                    addToBasket(courseData, this);
+                });
+            });
+
+            // Initialize with all courses
+            filterCourses('all');
+            updateButtonStates('all');
+
+            console.log('🎯 Search functionality initialized successfully');
+        });
+
+        // Debug function to check course data
+        function debugCourseData() {
+            const courses = document.querySelectorAll('.course-item');
+            console.log('📊 Course Data Debug:');
+            courses.forEach((course, index) => {
+                const name = course.querySelector('.card-title')?.textContent || 'No name';
+                const code = course.querySelector('.badge.bg-dark')?.textContent || 'No code';
+                console.log(`${index + 1}. ${name} (${code})`);
+            });
         }
 
         // Add to basket functionality
@@ -515,7 +653,7 @@
         // Initialize with all courses
         filterCourses('all');
         updateButtonStates('all');
-    });
+    
 
     function addToBasket(courseData, button) {
         console.log('🛒 Adding course to basket:', courseData.programme_name || courseData.course_name);
