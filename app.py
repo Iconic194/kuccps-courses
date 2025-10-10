@@ -2605,7 +2605,10 @@ def debug_basket_status():
         status['database_basket_count'] = len(db_basket)
     
     return jsonify(status)
-
+@app.route('/contact')
+def contact():
+    return render_template("contact.html")
+    
 @app.route('/temp-bypass/<flow>')
 def temp_bypass(flow):
     session[f'paid_{flow}'] = True
