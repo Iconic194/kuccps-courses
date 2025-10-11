@@ -6,236 +6,99 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manual Activation - KUCCPS Admin</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        .sidebar {
-            background-color: #2c3e50;
-            color: white;
-            height: 100vh;
-            position: fixed;
-            width: 250px;
-        }
-
-        .sidebar .nav-link {
-            color: #ecf0f1;
-            padding: 12px 20px;
-            margin: 2px 0;
-            border-radius: 5px;
-        }
-
-        .sidebar .nav-link:hover,
-        .sidebar .nav-link.active {
-            background-color: #34495e;
-            color: #3498db;
-        }
-
-        .sidebar .nav-link i {
-            width: 20px;
-            margin-right: 10px;
-        }
-
-        .main-content {
-            margin-left: 250px;
-            padding: 20px;
-            background-color: #f8f9fa;
-            min-height: 100vh;
-        }
-
-        .navbar-custom {
-            background: white;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        .card-header-custom {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-
-        .activation-form {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-    </style>
 </head>
 
 <body>
-    <div class="container-fluid">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">KUCCPS Admin</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="{{ url_for('admin_dashboard') }}">Dashboard</a>
+                <a class="nav-link" href="{{ url_for('admin_payments') }}">Payments</a>
+                <a class="nav-link" href="{{ url_for('admin_users') }}">Users</a>
+                <a class="nav-link" href="{{ url_for('admin_manual_activation') }}">Manual Activation</a>
+                <a class="nav-link" href="{{ url_for('admin_system_health') }}">System Health</a>
+                <a class="nav-link" href="{{ url_for('admin_logout') }}">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h2>Manual User Activation</h2>
+        <p class="text-muted">Activate users who paid but didn't receive results</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show">
+            {{ message }}
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
         <div class="row">
-            <!-- Sidebar -->
-            <nav class="col-md-2 sidebar">
-                <div class="d-flex flex-column p-3">
-                    <div class="text-center mb-4">
-                        <h4 class="mb-1">KUCCPS Admin</h4>
-                        <small class="text-muted">Control Panel</small>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Activate User</h5>
                     </div>
-                    <hr class="text-muted">
-                    <ul class="nav nav-pills flex-column mb-auto">
-                        <li class="nav-item">
-                            <a href="{{ url_for('admin_dashboard') }}" class="nav-link">
-                                <i class="fas fa-tachometer-alt"></i> Dashboard
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="{{ url_for('admin_payments') }}" class="nav-link">
-                                <i class="fas fa-money-bill-wave"></i> Payments
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="{{ url_for('admin_users') }}" class="nav-link">
-                                <i class="fas fa-users"></i> Users
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="{{ url_for('admin_manual_activation') }}" class="nav-link active">
-                                <i class="fas fa-key"></i> Manual Activation
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="{{ url_for('admin_system_monitoring') }}" class="nav-link">
-                                <i class="fas fa-heartbeat"></i> System Monitoring
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="{{ url_for('admin_financial_reports') }}" class="nav-link">
-                                <i class="fas fa-chart-bar"></i> Financial Reports
-                            </a>
-                        </li>
-                    </ul>
-                    <hr class="text-muted">
-                    <div class="mt-auto">
-                        <a href="{{ url_for('admin_logout') }}" class="nav-link text-danger">
-                            <i class="fas fa-sign-out-alt"></i> Logout
-                        </a>
-                    </div>
-                </div>
-            </nav>
-
-            <!-- Main content -->
-            <main class="col-md-10 main-content">
-                <!-- Top Navigation -->
-                <nav class="navbar navbar-expand-lg navbar-custom mb-4 rounded">
-                    <div class="container-fluid">
-                        <span class="navbar-brand mb-0 h1">Manual User Activation</span>
-                        <div class="d-flex">
-                            <span class="navbar-text">
-                                <i class="fas fa-user-shield me-2"></i>Welcome, {{ session.get('admin_username',
-                                'Admin') }}
-                            </span>
-                        </div>
-                    </div>
-                </nav>
-
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                {% for category, message in messages %}
-                <div
-                    class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show">
-                    <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'check-circle' }} me-2"></i>
-                    {{ message }}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>
-                {% endfor %}
-                {% endif %}
-                {% endwith %}
-
-                <div class="activation-form">
-                    <!-- Activation Form -->
-                    <div class="card mb-4">
-                        <div class="card-header card-header-custom">
-                            <h5 class="mb-0"><i class="fas fa-key me-2"></i>Activate User Manually</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="alert alert-info">
-                                <i class="fas fa-info-circle me-2"></i>
-                                <strong>Note:</strong> This will create a payment record that allows the user to bypass
-                                payment.
-                                The user will still need to enter their grades to get course results.
+                    <div class="card-body">
+                        <form method="POST">
+                            <div class="mb-3">
+                                <label for="email" class="form-label">User Email</label>
+                                <input type="email" class="form-control" id="email" name="email" required>
                             </div>
-
-                            <form method="POST">
-                                <div class="row">
-                                    <div class="col-md-6 mb-3">
-                                        <label for="email" class="form-label">User Email</label>
-                                        <input type="email" class="form-control" id="email" name="email" required
-                                            placeholder="user@example.com">
-                                        <div class="form-text">The email address provided by the user.</div>
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label for="index_number" class="form-label">KCSE Index Number</label>
-                                        <input type="text" class="form-control" id="index_number" name="index_number"
-                                            pattern="\d{11}/\d{4}" title="Format: 12345678901/2024" required
-                                            placeholder="12345678901/2024">
-                                        <div class="form-text">Format: 11 digits, slash, 4 digits</div>
-                                    </div>
-                                </div>
-
-                                <div class="row">
-                                    <div class="col-md-6 mb-3">
-                                        <label for="mpesa_receipt" class="form-label">M-Pesa Receipt Number</label>
-                                        <input type="text" class="form-control" id="mpesa_receipt" name="mpesa_receipt"
-                                            pattern="[A-Z0-9]{10}" title="10 character M-Pesa receipt" required
-                                            placeholder="RA49H8XYZ2" maxlength="10">
-                                        <div class="form-text">10-character M-Pesa receipt number</div>
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label for="level" class="form-label">Course Level</label>
-                                        <select class="form-select" id="level" name="level" required>
-                                            <option value="degree">Degree</option>
-                                            <option value="diploma">Diploma</option>
-                                            <option value="certificate">Certificate</option>
-                                            <option value="artisan">Artisan</option>
-                                            <option value="kmtc">KMTC</option>
-                                        </select>
-                                        <div class="form-text">Select the course level to activate</div>
-                                    </div>
-                                </div>
-
-                                <div class="alert alert-warning">
-                                    <i class="fas fa-exclamation-triangle me-2"></i>
-                                    <strong>Important:</strong> This action cannot be undone. Please verify all
-                                    information before activating.
-                                </div>
-
-                                <button type="submit" class="btn btn-success btn-lg w-100">
-                                    <i class="fas fa-key me-2"></i> Activate User
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-
-                    <!-- Instructions -->
-                    <div class="card">
-                        <div class="card-header card-header-custom">
-                            <h5 class="mb-0"><i class="fas fa-question-circle me-2"></i>How It Works</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <h6><i class="fas fa-check-circle text-success me-2"></i>What happens:</h6>
-                                    <ul>
-                                        <li>Payment record is created with confirmed status</li>
-                                        <li>User can enter grades without payment</li>
-                                        <li>User gets course results immediately</li>
-                                        <li>Record is marked as manual activation</li>
-                                    </ul>
-                                </div>
-                                <div class="col-md-6">
-                                    <h6><i class="fas fa-times-circle text-danger me-2"></i>What doesn't happen:</h6>
-                                    <ul>
-                                        <li>Courses are NOT automatically generated</li>
-                                        <li>User must still enter their grades</li>
-                                        <li>No actual payment processing occurs</li>
-                                    </ul>
-                                </div>
+                            <div class="mb-3">
+                                <label for="index_number" class="form-label">Index Number</label>
+                                <input type="text" class="form-control" id="index_number" name="index_number"
+                                    placeholder="12345678901/2024" required>
+                                <div class="form-text">Format: 11 digits, slash, 4 digits</div>
                             </div>
+                            <div class="mb-3">
+                                <label for="mpesa_receipt" class="form-label">M-Pesa Receipt</label>
+                                <input type="text" class="form-control" id="mpesa_receipt" name="mpesa_receipt"
+                                    placeholder="ABC123DEF4" required>
+                                <div class="form-text">10 alphanumeric characters</div>
+                            </div>
+                            <input type="hidden" name="activation_type" value="manual">
+                            <button type="submit" class="btn btn-success">Activate User</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Activation Instructions</h5>
+                    </div>
+                    <div class="card-body">
+                        <h6>When to use manual activation:</h6>
+                        <ul>
+                            <li>User paid but didn't receive results</li>
+                            <li>Payment confirmation failed</li>
+                            <li>System error during payment processing</li>
+                            <li>User has valid M-Pesa receipt but no access</li>
+                        </ul>
+
+                        <h6>What happens after activation:</h6>
+                        <ul>
+                            <li>User can enter grades again</li>
+                            <li>Payment will be bypassed</li>
+                            <li>User will get results immediately</li>
+                            <li>Activation record is saved for tracking</li>
+                        </ul>
+
+                        <div class="alert alert-info">
+                            <strong>Note:</strong> This activation allows the user to bypass payment and access all
+                            course categories.
                         </div>
                     </div>
                 </div>
-            </main>
+            </div>
         </div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 
 </html>

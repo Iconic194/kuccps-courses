@@ -10,6 +10,8 @@ import requests
 from requests.auth import HTTPBasicAuth
 import json
 import re
+from datetime import timedelta
+
 
 # --- Configuration and Setup ---
 load_dotenv()
@@ -99,12 +101,13 @@ db_artisan = None
 user_payments_collection = None
 user_courses_collection = None
 user_baskets_collection = None
+admin_activations_collection = None
 database_connected = False
 
 def initialize_database():
     """Initialize database connections with robust error handling"""
     global db, db_user_data, db_diploma, db_kmtc, db_certificate, db_artisan
-    global user_payments_collection, user_courses_collection, user_baskets_collection, database_connected
+    global user_payments_collection, user_courses_collection, user_baskets_collection, admin_activations_collection, database_connected
     
     max_retries = 3
     for attempt in range(max_retries):
@@ -133,23 +136,82 @@ def initialize_database():
             db_certificate = client['certificate']
             db_artisan = client['artisan']
             
-            # Initialize collections
-            user_courses_collection = db_user_data['user_courses']
-            user_payments_collection = db_user_data['user_payments']
-            user_baskets_collection = db_user_data['user_baskets']
+            # Initialize collections with consistent error handling
+            collections_initialized = True
             
-            # Create indexes
-            user_payments_collection.create_index([("email", 1), ("index_number", 1), ("level", 1)])
-            user_payments_collection.create_index([("transaction_ref", 1)])
-            user_payments_collection.create_index([("payment_confirmed", 1)])
-            user_courses_collection.create_index([("email", 1), ("index_number", 1), ("level", 1)])
-            user_baskets_collection.create_index([("index_number", 1)])
-            user_baskets_collection.create_index([("email", 1)])
-            user_baskets_collection.create_index([("created_at", 1)])
+            try:
+                user_courses_collection = db_user_data['user_courses']
+                print("✅ User courses collection initialized")
+            except Exception as e:
+                print(f"❌ Error initializing user_courses collection: {str(e)}")
+                collections_initialized = False
             
-            database_connected = True
-            print("🎉 All database collections initialized successfully!")
-            return True
+            try:
+                user_payments_collection = db_user_data['user_payments']
+                print("✅ User payments collection initialized")
+            except Exception as e:
+                print(f"❌ Error initializing user_payments collection: {str(e)}")
+                collections_initialized = False
+            
+            try:
+                user_baskets_collection = db_user_data['user_baskets']
+                print("✅ User baskets collection initialized")
+            except Exception as e:
+                print(f"❌ Error initializing user_baskets collection: {str(e)}")
+                collections_initialized = False
+            
+            try:
+                admin_activations_collection = db_user_data['admin_activations']
+                print("✅ Admin activations collection initialized")
+            except Exception as e:
+                print(f"❌ Error initializing admin_activations collection: {str(e)}")
+                admin_activations_collection = None
+                collections_initialized = False
+            
+            # Create indexes for collections that were successfully initialized
+            if user_payments_collection is not None:
+                try:
+                    user_payments_collection.create_index([("email", 1), ("index_number", 1), ("level", 1)])
+                    user_payments_collection.create_index([("transaction_ref", 1)])
+                    user_payments_collection.create_index([("payment_confirmed", 1)])
+                    print("✅ User payments indexes created")
+                except Exception as e:
+                    print(f"❌ Error creating user_payments indexes: {str(e)}")
+            
+            if user_courses_collection is not None:
+                try:
+                    user_courses_collection.create_index([("email", 1), ("index_number", 1), ("level", 1)])
+                    print("✅ User courses indexes created")
+                except Exception as e:
+                    print(f"❌ Error creating user_courses indexes: {str(e)}")
+            
+            if user_baskets_collection is not None:
+                try:
+                    user_baskets_collection.create_index([("index_number", 1)])
+                    user_baskets_collection.create_index([("email", 1)])
+                    user_baskets_collection.create_index([("created_at", 1)])
+                    print("✅ User baskets indexes created")
+                except Exception as e:
+                    print(f"❌ Error creating user_baskets indexes: {str(e)}")
+            
+            if admin_activations_collection is not None:
+                try:
+                    admin_activations_collection.create_index([("index_number", 1)])
+                    admin_activations_collection.create_index([("mpesa_receipt", 1)])
+                    admin_activations_collection.create_index([("is_active", 1)])
+                    print("✅ Admin activations indexes created")
+                except Exception as e:
+                    print(f"❌ Error creating admin_activations indexes: {str(e)}")
+            else:
+                print("⚠️ Admin activations collection not available for indexing")
+            
+            database_connected = collections_initialized
+            if collections_initialized:
+                print("🎉 All database collections initialized successfully!")
+            else:
+                print("⚠️ Some collections failed to initialize, running in partial mode")
+            
+            return collections_initialized
             
         except Exception as e:
             print(f"❌ Database connection error (attempt {attempt + 1}): {str(e)}")
@@ -164,7 +226,7 @@ def initialize_database():
 
 # Initialize database on startup
 if not initialize_database():
-    print("⚠️ Running in fallback mode - database operations will be skipped")
+    print("⚠️ Running in fallback mode - some database operations may be limited")
 else:
     print("🎉 Database connection established successfully!")
 
@@ -437,49 +499,118 @@ def save_user_payment(email, index_number, level, transaction_ref=None, amount=1
         session[session_key] = payment_record
 
 def save_user_courses(email, index_number, level, courses):
-    """Save user course results to courses collection"""
+    """Save user course results to courses collection with better error handling"""
     print(f"💾 Saving {len(courses)} courses for {email}, {index_number}, {level}")
     
     if not courses:
         print("⚠️ No courses to save!")
-        return
+        return False
         
+    # Validate courses data
+    valid_courses = []
+    for course in courses:
+        if isinstance(course, dict) and (course.get('programme_name') or course.get('course_name')):
+            # Ensure each course has required fields
+            course_copy = course.copy()
+            if '_id' in course_copy and isinstance(course_copy['_id'], ObjectId):
+                course_copy['_id'] = str(course_copy['_id'])
+            valid_courses.append(course_copy)
+        else:
+            print(f"⚠️ Skipping invalid course: {course}")
+    
+    if not valid_courses:
+        print("❌ No valid courses to save after validation")
+        return False
+        
+    print(f"✅ Validated {len(valid_courses)} courses for saving")
+    
     if not database_connected:
         session_key = f'{level}_courses_{index_number}'
         session[session_key] = {
             'email': email,
             'index_number': index_number,
             'level': level,
-            'courses': courses,
-            'created_at': datetime.now().isoformat()
+            'courses': valid_courses,
+            'created_at': datetime.now().isoformat(),
+            'courses_count': len(valid_courses)
         }
-        print(f"✅ Courses saved to session")
-        return
+        print(f"✅ Courses saved to session: {len(valid_courses)} courses")
+        return True
         
     courses_record = {
         'email': email,
         'index_number': index_number,
         'level': level,
-        'courses': courses,
-        'created_at': datetime.now()
+        'courses': valid_courses,
+        'courses_count': len(valid_courses),
+        'created_at': datetime.now(),
+        'updated_at': datetime.now()
     }
     
     try:
+        # Use update_one with upsert to prevent duplicates
         result = user_courses_collection.update_one(
-            {'email': email, 'index_number': index_number, 'level': level},
+            {
+                'email': email, 
+                'index_number': index_number, 
+                'level': level
+            },
             {'$set': courses_record},
             upsert=True
         )
         
         if result.upserted_id:
-            print(f"✅ New courses record created with {len(courses)} courses")
+            print(f"✅ New courses record created with {len(valid_courses)} courses")
         else:
-            print(f"✅ Courses record updated with {len(courses)} courses")
+            print(f"✅ Courses record updated with {len(valid_courses)} courses")
+            
+        # Verify the save worked
+        saved_record = user_courses_collection.find_one({
+            'email': email, 
+            'index_number': index_number, 
+            'level': level
+        })
+        
+        if saved_record and 'courses' in saved_record:
+            actual_count = len(saved_record['courses'])
+            print(f"✅ Verified: {actual_count} courses in database")
+            if actual_count != len(valid_courses):
+                print(f"⚠️ Course count mismatch: expected {len(valid_courses)}, got {actual_count}")
+            
+        return True
             
     except Exception as e:
         print(f"❌ Error saving user courses: {str(e)}")
+        # Fallback to session
         session_key = f'{level}_courses_{index_number}'
         session[session_key] = courses_record
+        return False
+
+@app.before_request
+def protect_session_data():
+    """Protect critical session data from accidental clearing"""
+    # Store critical session keys that should never be cleared
+    protected_keys = [
+        'email', 'index_number', 'verified_payment', 'verified_index', 
+        'verified_receipt', 'current_flow', 'current_level'
+    ]
+    
+    # Check if this is a basket clearing request
+    if request.endpoint == 'clear_basket':
+        # Backup protected data
+        request.protected_session_data = {}
+        for key in protected_keys:
+            if key in session:
+                request.protected_session_data[key] = session[key]
+
+@app.after_request
+def restore_protected_data(response):
+    """Restore protected session data after request"""
+    if hasattr(request, 'protected_session_data'):
+        for key, value in request.protected_session_data.items():
+            if key not in session or session[key] != value:
+                session[key] = value
+    return response
 
 def update_transaction_ref(email, index_number, level, transaction_ref):
     """Update transaction reference for user"""
@@ -544,29 +675,45 @@ def check_existing_user_data(email, index_number):
     except Exception as e:
         print(f"❌ Error checking existing user data: {str(e)}")
         return False
-
 def get_user_courses_data(email, index_number, level):
-    """Get user courses from database with fallback to session"""
+    """Get user courses from database with better validation"""
+    courses_data = None
+    
+    # Try database first
     if database_connected:
         try:
-            courses_data = user_courses_collection.find_one(
-                {'email': email, 'index_number': index_number, 'level': level}
-            )
+            courses_data = user_courses_collection.find_one({
+                'email': email, 
+                'index_number': index_number, 
+                'level': level
+            })
+            
             if courses_data and 'courses' in courses_data:
-                # Convert ObjectId to string for courses
-                converted_courses = []
+                # Validate and convert courses
+                valid_courses = []
                 for course in courses_data['courses']:
-                    course_dict = dict(course)
-                    if '_id' in course_dict and isinstance(course_dict['_id'], ObjectId):
-                        course_dict['_id'] = str(course_dict['_id'])
-                    converted_courses.append(course_dict)
-                courses_data['courses'] = converted_courses
-                return courses_data
+                    if course and isinstance(course, dict):
+                        course_dict = dict(course)
+                        if '_id' in course_dict and isinstance(course_dict['_id'], ObjectId):
+                            course_dict['_id'] = str(course_dict['_id'])
+                        valid_courses.append(course_dict)
+                
+                courses_data['courses'] = valid_courses
+                courses_data['courses_count'] = len(valid_courses)
+                print(f"✅ Loaded {len(valid_courses)} courses from database for {level}")
+                
         except Exception as e:
             print(f"❌ Error getting user courses from database: {str(e)}")
     
-    session_key = f'{level}_courses_{index_number}'
-    return session.get(session_key)
+    # Fallback to session
+    if not courses_data or not courses_data.get('courses'):
+        session_key = f'{level}_courses_{index_number}'
+        courses_data = session.get(session_key)
+        
+        if courses_data and 'courses' in courses_data:
+            print(f"✅ Loaded {len(courses_data['courses'])} courses from session for {level}")
+    
+    return courses_data
 
 def mark_payment_confirmed(transaction_ref, mpesa_receipt=None):
     """Mark payment as confirmed - for STK Push"""
@@ -692,9 +839,12 @@ def process_courses_after_payment(email, index_number, flow):
 
 # --- MPesa Integration Functions ---
 def get_mpesa_access_token():
-    """Get MPesa access token for authentication"""
+    """Get MPesa access token for authentication with better error handling"""
     consumer_key = MPESA_CONSUMER_KEY
     consumer_secret = MPESA_CONSUMER_SECRET
+    
+    print(f"🔑 Getting MPesa access token...")
+    print(f"🔑 Consumer Key: {consumer_key[:10]}...")
     
     try:
         response = requests.get(
@@ -703,8 +853,12 @@ def get_mpesa_access_token():
             timeout=30
         )
         
+        print(f"📥 OAuth response status: {response.status_code}")
+        print(f"📥 OAuth response headers: {dict(response.headers)}")
+        
         if response.status_code != 200:
             print(f"❌ MPesa OAuth failed with status: {response.status_code}")
+            print(f"📄 Response: {response.text}")
             return None
             
         resp_json = response.json()
@@ -712,37 +866,61 @@ def get_mpesa_access_token():
         
         if not access_token:
             print('❌ No access_token in MPesa OAuth response')
+            print(f"📄 Full response: {resp_json}")
             return None
             
         print("✅ MPesa access token obtained successfully")
+        print(f"🔑 Token: {access_token[:50]}...")
         return access_token
         
-    except Exception as e:
-        print('❌ MPesa OAuth error:', str(e))
+    except requests.exceptions.Timeout:
+        print('❌ MPesa OAuth timeout')
         return None
-
+    except requests.exceptions.ConnectionError:
+        print('❌ MPesa OAuth connection error')
+        return None
+    except Exception as e:
+        print(f'❌ MPesa OAuth error: {str(e)}')
+        import traceback
+        traceback.print_exc()
+        return None
 def initiate_stk_push(phone, amount=1):
-    """Initiate MPesa STK push payment"""
+    """Initiate MPesa STK push payment with better error handling"""
     print(f"📱 Initiating STK push for phone: {phone}, amount: {amount}")
     
-    # Format phone number
-    if phone.startswith('0') and len(phone) == 10:
-        phone = '254' + phone[1:]
-    elif phone.startswith('+254') and len(phone) == 13:
-        phone = phone[1:]
-    elif len(phone) == 9:
-        phone = '254' + phone
-    
-    print(f"📞 Formatted phone: {phone}")
-    
     try:
+        # Format phone number
+        if phone.startswith('0') and len(phone) == 10:
+            phone = '254' + phone[1:]
+        elif phone.startswith('+254') and len(phone) == 13:
+            phone = phone[1:]
+        elif len(phone) == 9:
+            phone = '254' + phone
+        elif len(phone) == 12 and phone.startswith('254'):
+            # Already in correct format
+            pass
+        else:
+            return {'error': 'Invalid phone number format'}
+    
+        print(f"📞 Formatted phone: {phone}")
+        
+        # Validate amount
+        if amount <= 0:
+            return {'error': 'Invalid amount'}
+        
+        # Get access token
         access_token = get_mpesa_access_token()
         if not access_token:
             return {'error': 'Failed to get MPesa access token'}
             
+        # Prepare STK push request
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
         business_short_code = MPESA_SHORTCODE
         passkey = MPESA_PASSKEY
+        
+        print(f"🔑 Using ShortCode: {business_short_code}")
+        print(f"🔑 Using Passkey: {passkey[:10]}...")  # Don't log full passkey
+        
         data_to_encode = business_short_code + passkey + timestamp
         password = base64.b64encode(data_to_encode.encode()).decode('utf-8')
         
@@ -753,8 +931,16 @@ def initiate_stk_push(phone, amount=1):
         
         index_number = session.get('index_number', 'KUCCPS')
         
-        # Use the actual callback URL for your deployed app
-        base_url = 'https://kuccps-courses.onrender.com'
+        # 🔥 IMPORTANT: Use correct callback URL based on environment
+        if os.environ.get('FLASK_ENV') == 'production' or 'render.com' in os.environ.get('RENDER_EXTERNAL_HOSTNAME', ''):
+            base_url = 'https://kuccps-courses.onrender.com'
+        else:
+            # For local development, use a service like ngrok or test with production URL
+            base_url = 'https://kuccps-courses.onrender.com'
+            # Alternatively, you can use local tunnel or keep as production URL
+        
+        callback_url = f"{base_url}/mpesa/callback"
+        
         payload = {
             "BusinessShortCode": business_short_code,
             "Password": password,
@@ -764,14 +950,20 @@ def initiate_stk_push(phone, amount=1):
             "PartyA": phone,
             "PartyB": business_short_code,
             "PhoneNumber": phone,
-            "CallBackURL": f"{base_url}/mpesa/callback",
+            "CallBackURL": callback_url,
             "AccountReference": index_number,
             "TransactionDesc": f"Course Qualification - Ksh {amount}"
         }
         
         print(f"📤 Sending STK push request to MPesa...")
-        print(f"Payload: {json.dumps(payload, indent=2)}")
+        print(f"📞 Phone: {phone}")
+        print(f"💰 Amount: {amount}")
+        print(f"🏢 Business ShortCode: {business_short_code}")
+        print(f"📝 Account Reference: {index_number}")
+        print(f"🔗 Callback URL: {callback_url}")
+        print(f"📦 Payload: {json.dumps(payload, indent=2)}")
         
+        # Send request with timeout
         response = requests.post(
             "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
             json=payload,
@@ -780,21 +972,282 @@ def initiate_stk_push(phone, amount=1):
         )
         
         print(f"📥 MPesa response status: {response.status_code}")
-        print(f"📥 MPesa response: {response.text}")
+        print(f"📥 MPesa response headers: {dict(response.headers)}")
+        print(f"📥 MPesa response body: {response.text}")
         
         if response.status_code == 200:
             result = response.json()
-            return result
+            print(f"✅ STK Push initiated successfully")
+            print(f"📋 Response: {json.dumps(result, indent=2)}")
+            
+            # Check for specific error codes in success response
+            if result.get('ResponseCode') == '0':
+                print(f"🎯 STK Push sent to customer successfully")
+                return result
+            else:
+                error_code = result.get('ResponseCode')
+                error_message = result.get('ResponseDescription') or result.get('errorMessage') or 'Unknown error'
+                print(f"❌ STK Push failed with code {error_code}: {error_message}")
+                return {'error': f'MPesa Error {error_code}: {error_message}'}
         else:
-            return {'error': f'MPesa API returned status {response.status_code}', 'details': response.text}
+            # Handle HTTP errors
+            error_message = f'MPesa API returned status {response.status_code}'
+            print(f"❌ {error_message}")
+            
+            # Try to get more details from response
+            try:
+                error_details = response.json()
+                print(f"📄 Error details: {json.dumps(error_details, indent=2)}")
+                return {'error': error_message, 'details': error_details}
+            except:
+                return {'error': error_message, 'details': response.text}
+        
+    except requests.exceptions.Timeout:
+        error_msg = "MPesa API request timed out"
+        print(f"❌ {error_msg}")
+        return {'error': error_msg}
+        
+    except requests.exceptions.ConnectionError:
+        error_msg = "Failed to connect to MPesa API"
+        print(f"❌ {error_msg}")
+        return {'error': error_msg}
         
     except Exception as e:
-        print(f"❌ Error initiating STK push: {str(e)}")
-        return {'error': str(e)}
+        error_msg = f"Unexpected error initiating STK push: {str(e)}"
+        print(f"❌ {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return {'error': error_msg}
 
-# --- Pricing and Category Management Functions ---
+def check_manual_activation(email, index_number, flow=None):
+    """Check if user has manual activation from admin and mark as expired after use"""
+    print(f"🔍 Checking manual activation for: {email}, {index_number}, flow: {flow}")
+    
+    # First check session for manual activations
+    session_key = f'manual_activation_{index_number}'
+    if session.get(session_key):
+        print(f"✅ Manual activation found in session for {index_number}")
+        
+        # If flow is specified and we're using the activation, mark it as used
+        if flow and database_connected and admin_activations_collection is not None:
+            try:
+                # Mark as expired in database
+                result = admin_activations_collection.update_one(
+                    {
+                        'index_number': index_number,
+                        'is_active': True
+                    },
+                    {
+                        '$set': {
+                            'is_active': False,
+                            'used_for_flow': flow,
+                            'used_at': datetime.now(),
+                            'status': 'expired'
+                        }
+                    }
+                )
+                if result.modified_count > 0:
+                    print(f"✅ Manual activation marked as expired for {flow}")
+                    # Also remove from session to prevent reuse
+                    session.pop(session_key, None)
+            except Exception as e:
+                print(f"❌ Error expiring manual activation: {str(e)}")
+        
+        return True
+    
+    # Also check by email in session
+    for key in session.keys():
+        if key.startswith('manual_activation_'):
+            activation_data = session.get(key)
+            if (isinstance(activation_data, dict) and 
+                (activation_data.get('email') == email or activation_data.get('index_number') == index_number)):
+                print(f"✅ Manual activation found in session by email/index match")
+                
+                # Mark as used if flow is specified
+                if flow and database_connected and admin_activations_collection is not None:
+                    try:
+                        result = admin_activations_collection.update_one(
+                            {
+                                '$or': [
+                                    {'email': email},
+                                    {'index_number': index_number}
+                                ],
+                                'is_active': True
+                            },
+                            {
+                                '$set': {
+                                    'is_active': False,
+                                    'used_for_flow': flow,
+                                    'used_at': datetime.now(),
+                                    'status': 'expired'
+                                }
+                            }
+                        )
+                        if result.modified_count > 0:
+                            print(f"✅ Manual activation marked as expired for {flow}")
+                            session.pop(key, None)
+                    except Exception as e:
+                        print(f"❌ Error expiring manual activation: {str(e)}")
+                
+                return True
+    
+    if not database_connected:
+        print("ℹ️ Database not connected, only checking session")
+        return False
+    
+    try:
+        # Check database for active manual activation
+        activation = admin_activations_collection.find_one({
+            '$or': [
+                {'email': email},
+                {'index_number': index_number}
+            ],
+            'is_active': True
+        })
+        
+        if activation:
+            print(f"✅ Manual activation found in database for {email}/{index_number}")
+            
+            # If flow is specified, mark as expired immediately
+            if flow:
+                result = admin_activations_collection.update_one(
+                    {'_id': activation['_id']},
+                    {
+                        '$set': {
+                            'is_active': False,
+                            'used_for_flow': flow,
+                            'used_at': datetime.now(),
+                            'status': 'expired'
+                        }
+                    }
+                )
+                if result.modified_count > 0:
+                    print(f"✅ Manual activation marked as expired for {flow}")
+            else:
+                # Store in session for faster future access (only if not expiring immediately)
+                session[session_key] = {
+                    'email': activation.get('email'),
+                    'index_number': activation.get('index_number'),
+                    'mpesa_receipt': activation.get('mpesa_receipt'),
+                    'activated_at': activation.get('activated_at')
+                }
+            
+            return True
+        else:
+            print(f"❌ No manual activation found for {email}/{index_number}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error checking manual activation in database: {str(e)}")
+        return False
+
+def create_manual_activation_payment(email, index_number, flow, mpesa_receipt):
+    """Create a payment record for manual activations so users can verify later"""
+    print(f"💰 Creating payment record for manual activation: {email}, {index_number}, {flow}")
+    
+    payment_record = {
+        'email': email,
+        'index_number': index_number,
+        'level': flow,
+        'transaction_ref': f"MANUAL_{mpesa_receipt}",
+        'mpesa_receipt': mpesa_receipt,
+        'payment_amount': 0,  # Manual activations are free
+        'payment_confirmed': True,
+        'payment_method': 'manual_activation',
+        'activated_by': 'admin',
+        'created_at': datetime.now(),
+        'payment_date': datetime.now()
+    }
+    
+    if database_connected:
+        try:
+            result = user_payments_collection.update_one(
+                {
+                    'email': email,
+                    'index_number': index_number,
+                    'level': flow
+                },
+                {'$set': payment_record},
+                upsert=True
+            )
+            print(f"✅ Manual activation payment record saved for {flow}")
+            return True
+        except Exception as e:
+            print(f"❌ Error saving manual activation payment: {str(e)}")
+            # Fallback to session
+            session_key = f'{flow}_payment_{index_number}'
+            session[session_key] = payment_record
+            return False
+    else:
+        # Session fallback
+        session_key = f'{flow}_payment_{index_number}'
+        session[session_key] = payment_record
+        return True
+    
+def create_manual_activation_payment(email, index_number, flow, mpesa_receipt):
+    """Create a payment record for manual activations so users can verify later"""
+    print(f"💰 Creating payment record for manual activation: {email}, {index_number}, {flow}")
+    
+    payment_record = {
+        'email': email,
+        'index_number': index_number,
+        'level': flow,
+        'transaction_ref': f"MANUAL_{mpesa_receipt}",
+        'mpesa_receipt': mpesa_receipt,
+        'payment_amount': 0,  # Manual activations are free
+        'payment_confirmed': True,
+        'payment_method': 'manual_activation',
+        'activated_by': 'admin',
+        'created_at': datetime.now(),
+        'payment_date': datetime.now()
+    }
+    
+    if database_connected:
+        try:
+            result = user_payments_collection.update_one(
+                {
+                    'email': email,
+                    'index_number': index_number,
+                    'level': flow
+                },
+                {'$set': payment_record},
+                upsert=True
+            )
+            print(f"✅ Manual activation payment record saved for {flow}")
+            return True
+        except Exception as e:
+            print(f"❌ Error saving manual activation payment: {str(e)}")
+            # Fallback to session
+            session_key = f'{flow}_payment_{index_number}'
+            session[session_key] = payment_record
+            return False
+    else:
+        # Session fallback
+        session_key = f'{flow}_payment_{index_number}'
+        session[session_key] = payment_record
+        return True
+
 def has_user_paid_for_category(email, index_number, category):
     """Check if user has already paid for a specific category - STRICTER VERSION"""
+    # 🔥 NEW: Check manual activation first (without marking as used)
+    manual_active = False
+    if database_connected and admin_activations_collection is not None:
+        try:
+            manual_activation = admin_activations_collection.find_one({
+                '$or': [
+                    {'email': email},
+                    {'index_number': index_number}
+                ],
+                'is_active': True
+            })
+            manual_active = manual_activation is not None
+        except Exception as e:
+            print(f"❌ Error checking manual activation in has_user_paid: {str(e)}")
+    
+    if manual_active:
+        print(f"✅ Active manual activation found for {email}, allowing access to {category}")
+        return True
+    
     # First check session
     session_paid = session.get(f'paid_{category}')
     if session_paid:
@@ -1089,7 +1542,7 @@ def get_user_basket_by_index(index_number):
     return final_basket
 
 def clear_user_basket(index_number):
-    """Clear user basket from database"""
+    """Clear user basket from database without affecting session"""
     if database_connected:
         try:
             result = user_baskets_collection.update_one(
@@ -1106,10 +1559,11 @@ def clear_user_basket(index_number):
             print(f"❌ Error clearing user basket from database: {str(e)}")
             return False
     
-    # Clear from session
-    session.pop('course_basket', None)
+    # Clear from session (only basket, not other data)
+    if 'course_basket' in session:
+        session['course_basket'] = []
+        session.modified = True
     return True
-
 # --- Routes ---
 @app.route('/')
 def index():
@@ -1300,7 +1754,90 @@ def enter_details(flow):
         flash("Invalid index number format. Must be 11 digits, slash, 4 digits (e.g., 12345678901/2024)", "error")
         return redirect(url_for('enter_details', flow=flow))
     
-    # 🔥 STRICTER CHECK: Check if user has already paid for this SPECIFIC category
+    # 🔥 NEW: Check for manual activation first (pass flow parameter to mark as used)
+    if check_manual_activation(email, index_number, flow):
+        print(f"✅ Manual activation found for {email}, generating courses for {flow}")
+        
+        # Store user details in session
+        session['email'] = email
+        session['index_number'] = index_number
+        session['current_flow'] = flow
+        session[f'paid_{flow}'] = True  # Mark as paid since manually activated
+        session['manual_activation'] = True
+        
+        # Get the M-Pesa receipt from the activation record to create payment record
+        mpesa_receipt = None
+        if database_connected and admin_activations_collection is not None:
+            try:
+                # Find the activation record (even if expired now)
+                activation = admin_activations_collection.find_one({
+                    '$or': [
+                        {'email': email},
+                        {'index_number': index_number}
+                    ],
+                    'mpesa_receipt': {'$exists': True}
+                })
+                if activation:
+                    mpesa_receipt = activation.get('mpesa_receipt')
+                    print(f"💰 Found M-Pesa receipt for payment record: {mpesa_receipt}")
+            except Exception as e:
+                print(f"❌ Error getting M-Pesa receipt from activation: {str(e)}")
+        
+        # Create payment record for manual activation so user can verify later
+        if mpesa_receipt:
+            create_manual_activation_payment(email, index_number, flow, mpesa_receipt)
+        else:
+            print("⚠️ No M-Pesa receipt found for manual activation, creating fallback payment record")
+            # Create fallback payment record
+            create_manual_activation_payment(email, index_number, flow, f"MANUAL_{index_number}")
+        
+        # Generate courses immediately for manually activated users
+        try:
+            qualifying_courses = []
+            
+            if flow == 'degree':
+                user_grades = session.get('degree_grades', {})
+                user_cluster_points = session.get('degree_cluster_points', {})
+                qualifying_courses = get_qualifying_courses(user_grades, user_cluster_points)
+                
+            elif flow == 'diploma':
+                user_grades = session.get('diploma_grades', {})
+                user_mean_grade = session.get('diploma_mean_grade', '')
+                qualifying_courses = get_qualifying_diploma_courses(user_grades, user_mean_grade)
+                
+            elif flow == 'certificate':
+                user_grades = session.get('certificate_grades', {})
+                user_mean_grade = session.get('certificate_mean_grade', '')
+                qualifying_courses = get_qualifying_certificate_courses(user_grades, user_mean_grade)
+                
+            elif flow == 'artisan':
+                user_grades = session.get('artisan_grades', {})
+                user_mean_grade = session.get('artisan_mean_grade', '')
+                qualifying_courses = get_qualifying_artisan_courses(user_grades, user_mean_grade)
+                
+            elif flow == 'kmtc':
+                user_grades = session.get('kmtc_grades', {})
+                user_mean_grade = session.get('kmtc_mean_grade', '')
+                qualifying_courses = get_qualifying_kmtc_courses(user_grades, user_mean_grade)
+            
+            # Save courses to database
+            if qualifying_courses:
+                save_user_courses(email, index_number, flow, qualifying_courses)
+                print(f"✅ Generated {len(qualifying_courses)} courses for manually activated user")
+                
+                # Redirect directly to results
+                flash("Manual activation verified! Your courses have been generated. You can now view this category anytime using 'Already Made Payment'.", "success")
+                return redirect(url_for('show_results', flow=flow))
+            else:
+                flash("No qualifying courses found for your grades. Please try a different course level.", "warning")
+                return redirect(url_for(flow))
+                
+        except Exception as e:
+            print(f"❌ Error generating courses for manually activated user: {str(e)}")
+            flash("Error generating courses. Please try again.", "error")
+            return redirect(url_for('enter_details', flow=flow))
+    
+    # 🔥 STRICTER CHECK: Check if user has already paid for this SPECIFIC category (for non-manual users)
     if has_user_paid_for_category(email, index_number, flow):
         print(f"🚫 User {email} already paid for {flow}")
         flash(f"You have already paid for {flow.upper()} courses. Please use 'Already Made Payment' to view your results.", "warning")
@@ -1345,6 +1882,41 @@ def enter_details(flow):
     
     return redirect(url_for('payment', flow=flow))
 
+@app.route('/admin/activations')
+def admin_activations():
+    """View all manual activations"""
+    if not session.get('admin_logged_in'):
+        flash("Please login as administrator", "error")
+        return redirect(url_for('admin_login'))
+    
+    try:
+        activations_data = []
+        
+        if database_connected and admin_activations_collection is not None:
+            activations = list(admin_activations_collection.find().sort('activated_at', -1))
+            
+            for activation in activations:
+                activation_data = {
+                    'email': activation.get('email', 'N/A'),
+                    'index_number': activation.get('index_number', 'N/A'),
+                    'mpesa_receipt': activation.get('mpesa_receipt', 'N/A'),
+                    'activation_type': activation.get('activation_type', 'manual'),
+                    'activated_by': activation.get('activated_by', 'N/A'),
+                    'activated_at': activation.get('activated_at', 'N/A'),
+                    'is_active': activation.get('is_active', False),
+                    'status': activation.get('status', 'unknown'),
+                    'used_for_flow': activation.get('used_for_flow', 'Not used'),
+                    'used_at': activation.get('used_at', 'N/A')
+                }
+                activations_data.append(activation_data)
+        
+        return render_template('admin_activations.html', activations=activations_data)
+        
+    except Exception as e:
+        print(f"❌ Error loading admin activations: {str(e)}")
+        flash("Error loading activation data", "error")
+        return render_template('admin_activations.html', activations=[])
+    
 @app.route('/check-payment/<flow>')
 def check_payment(flow):
     email = session.get('email')
@@ -1498,6 +2070,7 @@ def check_payment_status(flow):
     else:
         print(f"❌ Payment not confirmed for {flow}")
         return {'paid': False}
+
 # --- MPesa Callback Routes ---
 @app.route('/mpesa/callback', methods=['POST'])
 def mpesa_callback():
@@ -1544,6 +2117,7 @@ def mpesa_callback():
     except Exception as e:
         print(f"❌ Error processing MPesa callback: {str(e)}")
         return {'success': False}, 400
+
 @app.route('/about')
 def about():
     return render_template('about.html')
@@ -1715,6 +2289,7 @@ def show_results(flow):
         print(f"❌ Error in show_results: {str(e)}")
         flash("An error occurred while generating your results", "error")
         return redirect(url_for('index'))
+
 # --- Collection-based Results Routes ---
 @app.route('/collection-courses/<flow>/<collection_name>')
 def show_collection_courses(flow, collection_name):
@@ -2149,29 +2724,83 @@ def remove_from_basket():
     except Exception as e:
         print(f"❌ Error removing from basket: {str(e)}")
         return jsonify({'success': False, 'error': str(e)})
-
 @app.route('/clear-basket', methods=['POST'])
 def clear_basket():
     try:
-        # Get user info
-        email = session.get('email')
-        index_number = session.get('index_number')
+        print("🛒 Starting basket clearing process...")
+        
+        # BACKUP CRITICAL SESSION DATA BEFORE CLEARING
+        critical_session_data = {}
+        critical_keys = [
+            'email', 'index_number', 'verified_payment', 'verified_index', 
+            'verified_receipt', 'current_flow', 'current_level'
+        ]
+        
+        # Backup all paid category status
+        paid_categories = []
+        for level in ['degree', 'diploma', 'certificate', 'artisan', 'kmtc']:
+            if session.get(f'paid_{level}'):
+                paid_categories.append(level)
+                critical_session_data[f'paid_{level}'] = True
+        
+        # Backup other critical data
+        for key in critical_keys:
+            if key in session:
+                critical_session_data[key] = session[key]
+        
+        print(f"🔐 Backed up session data: {list(critical_session_data.keys())}")
+        print(f"💰 Paid categories backed up: {paid_categories}")
+        
+        # Get user info from backed up data
+        email = critical_session_data.get('email')
+        index_number = critical_session_data.get('index_number')
         
         # For verified users, get from verified_index
         if not index_number:
-            index_number = session.get('verified_index')
+            index_number = critical_session_data.get('verified_index')
             if index_number:
                 email = f"verified_{index_number}@temp.com"
         
-        # Clear from session
-        session['course_basket'] = []
-        session.modified = True
+        if not index_number:
+            print("❌ No user identified for basket clearing")
+            return jsonify({
+                'success': False,
+                'error': 'User not identified'
+            })
+        
+        print(f"🗑️ Clearing basket for user: {index_number}")
+        
+        # Clear from session - ONLY the basket
+        if 'course_basket' in session:
+            session['course_basket'] = []
+            session.modified = True
+            print("✅ Basket cleared from session")
         
         # Clear from database
-        if index_number:
-            clear_user_basket(index_number)
+        if database_connected:
+            try:
+                result = user_baskets_collection.update_one(
+                    {'index_number': index_number},
+                    {'$set': {
+                        'basket': [],
+                        'updated_at': datetime.now(),
+                        'is_active': False
+                    }}
+                )
+                if result.modified_count > 0:
+                    print("✅ Basket cleared from database")
+                else:
+                    print("ℹ️ No basket found in database to clear")
+            except Exception as db_error:
+                print(f"❌ Error clearing basket from database: {db_error}")
         
-        print("🗑️ Basket cleared")
+        # RESTORE CRITICAL SESSION DATA
+        for key, value in critical_session_data.items():
+            session[key] = value
+        session.modified = True
+        
+        print("✅ Basket cleared successfully with session protection")
+        print(f"🔄 Restored session keys: {list(critical_session_data.keys())}")
         
         return jsonify({
             'success': True,
@@ -2181,83 +2810,90 @@ def clear_basket():
         
     except Exception as e:
         print(f"❌ Error clearing basket: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
-
 @app.route('/basket')
 def view_basket():
     """Display basket page - only accessible via verified payment or results"""
     try:
-        # Check access sources
-        referer = request.headers.get('Referer', '')
-        allowed_referrers = ['/results/', '/verified-dashboard', '/collection-courses/', '/verified-results/']
-        is_from_allowed_page = any(ref in referer for ref in allowed_referrers)
-        is_verified = session.get('verified_payment')
+        print("🛒 Accessing basket page...")
+        print(f"📋 Session keys: {list(session.keys())}")
+        
+        # Check if user has any paid categories or is verified
+        has_paid_access = False
+        paid_categories = []
+        
+        # Check for verified payment
+        if session.get('verified_payment'):
+            has_paid_access = True
+            print("✅ Verified user accessing basket")
+        
+        # Check for regular paid categories
+        for level in ['degree', 'diploma', 'certificate', 'artisan', 'kmtc']:
+            if session.get(f'paid_{level}'):
+                has_paid_access = True
+                paid_categories.append(level)
+        
+        print(f"💰 Paid categories found: {paid_categories}")
+        print(f"🔑 Has paid access: {has_paid_access}")
         
         # Get basket from appropriate source
         basket = []
         
         # First priority: verified users (from database)
-        if is_verified:
+        if session.get('verified_payment'):
             index_number = session.get('verified_index')
             if index_number:
                 basket = get_user_basket_by_index(index_number)
                 print(f"🛒 Loaded basket from database for verified user {index_number}: {len(basket)} items")
         
-        # Second priority: session basket - with proper type checking
+        # Second priority: session basket
         if not basket:
             session_basket = session.get('course_basket')
             if session_basket:
-                # Ensure session_basket is a list
                 if isinstance(session_basket, list):
                     basket = session_basket
                     print(f"🛒 Loaded basket from session (list): {len(basket)} items")
                 elif isinstance(session_basket, dict):
-                    # Convert dict to list if it was incorrectly stored as dict
-                    print("⚠️ Session basket was a dict, converting to list")
-                    basket = [session_basket]  # Wrap the dict in a list
-                    session['course_basket'] = basket  # Fix the session
+                    basket = [session_basket]
+                    session['course_basket'] = basket
                     session.modified = True
+                    print("⚠️ Fixed session basket (was dict, now list)")
                 else:
-                    print(f"⚠️ Unexpected session basket type: {type(session_basket)}")
                     basket = []
-            else:
-                print("ℹ️ No session basket found")
+                    print(f"⚠️ Unexpected session basket type: {type(session_basket)}")
         
         # Check if user has access
         has_basket = len(basket) > 0
         
-        if not is_from_allowed_page and not is_verified and not has_basket:
+        # Allow access if user has paid for any category OR has items in basket
+        if not has_paid_access and not has_basket:
+            print("🚫 No access - user hasn't paid and basket is empty")
             flash("Please browse your qualified courses first or verify your payment to use the basket", "warning")
             return redirect(url_for('index'))
         
-        # Ensure basket items have proper structure and are valid
+        print(f"✅ Granting basket access to user")
+        
+        # Process basket items (your existing code)
         processed_basket = []
         for item in basket:
             if isinstance(item, dict):
-                # Ensure added_at field exists and is properly formatted
                 if 'added_at' not in item:
                     item['added_at'] = datetime.now().isoformat()
-                # Ensure basket_id exists
                 if 'basket_id' not in item:
                     item['basket_id'] = str(ObjectId())
-                # Ensure required fields exist
                 if 'programme_name' in item or 'course_name' in item:
                     processed_basket.append(item)
-                else:
-                    print(f"⚠️ Skipping invalid basket item (missing name): {item}")
-            else:
-                # Skip invalid items
-                print(f"⚠️ Skipping non-dict basket item: {type(item)} - {item}")
-                continue
         
         basket_count = len(processed_basket)
         print(f"🎯 Final basket count for display: {basket_count}")
         
-        # Update session with processed basket (in case we fixed any issues)
-        if not is_verified:  # Only update session for non-verified users
+        # Update session with processed basket
+        if not session.get('verified_payment'):
             session['course_basket'] = processed_basket
             session.modified = True
         
@@ -2268,13 +2904,21 @@ def view_basket():
         import traceback
         traceback.print_exc()
         
-        # Reset corrupted basket
+        # Reset corrupted basket but preserve other session data
+        critical_data = {}
+        for key in ['email', 'index_number', 'verified_payment', 'verified_index', 'current_flow']:
+            if key in session:
+                critical_data[key] = session[key]
+        
+        session.clear()
+        for key, value in critical_data.items():
+            session[key] = value
         session['course_basket'] = []
         session.modified = True
         
         flash("There was an error loading your basket. Please try again.", "error")
         return redirect(url_for('index'))
-
+    
 @app.route('/get-basket')
 def get_basket():
     """Get user's current basket"""
@@ -2561,6 +3205,373 @@ def search_courses_route(flow):
             'query': query or ''
         })
 
+# --- Admin Routes ---
+@app.route('/admin')
+def admin_login():
+    """Admin login page"""
+    return render_template('admin_login.html')
+
+@app.route('/admin/dashboard')
+def admin_dashboard():
+    """Admin dashboard - protected route"""
+    if not session.get('admin_logged_in'):
+        flash("Please login as administrator", "error")
+        return redirect(url_for('admin_login'))
+    
+    return render_template('admin_dashboard.html')
+
+@app.route('/admin/auth', methods=['POST'])
+def admin_authentication():
+    """Admin authentication endpoint"""
+    username = request.form.get('username')
+    password = request.form.get('password')
+    
+    # Simple hardcoded credentials (replace with secure authentication)
+    if username == 'admin' and password == 'kuccps2025':
+        session['admin_logged_in'] = True
+        session['admin_username'] = username
+        flash("Admin login successful", "success")
+        return redirect(url_for('admin_dashboard'))
+    else:
+        flash("Invalid admin credentials", "error")
+        return redirect(url_for('admin_login'))
+
+@app.route('/admin/logout')
+def admin_logout():
+    """Admin logout"""
+    session.pop('admin_logged_in', None)
+    session.pop('admin_username', None)
+    flash("Admin logged out successfully", "info")
+    return redirect(url_for('admin_login'))
+
+@app.route('/admin/manual-activation', methods=['GET', 'POST'])
+def admin_manual_activation():
+    """Manual activation for users who paid but didn't get results"""
+    if not session.get('admin_logged_in'):
+        flash("Please login as administrator", "error")
+        return redirect(url_for('admin_login'))
+    
+    # Calculate statistics for the template
+    stats = {
+        'active_count': 0,
+        'used_count': 0, 
+        'total_count': 0,
+        'today_count': 0
+    }
+    
+    if database_connected and admin_activations_collection is not None:
+        try:
+            stats['active_count'] = admin_activations_collection.count_documents({'is_active': True})
+            stats['used_count'] = admin_activations_collection.count_documents({'is_active': False})
+            stats['total_count'] = admin_activations_collection.count_documents({})
+            
+            # Today's activations
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            stats['today_count'] = admin_activations_collection.count_documents({
+                'activated_at': {'$gte': today_start}
+            })
+        except Exception as e:
+            print(f"❌ Error loading activation stats: {str(e)}")
+    
+    if request.method == 'POST':
+        try:
+            email = request.form.get('email', '').strip().lower()
+            index_number = request.form.get('index_number', '').strip()
+            mpesa_receipt = request.form.get('mpesa_receipt', '').strip().upper()
+            activation_type = request.form.get('activation_type', 'manual')
+            
+            if not email or not index_number or not mpesa_receipt:
+                flash("All fields are required", "error")
+                return redirect(url_for('admin_manual_activation'))
+            
+            # Validate index number format
+            if not re.match(r'^\d{11}/\d{4}$', index_number):
+                flash("Invalid index number format", "error")
+                return redirect(url_for('admin_manual_activation'))
+            
+            # Validate M-Pesa receipt format
+            if len(mpesa_receipt) != 10 or not mpesa_receipt.isalnum():
+                flash("Invalid M-Pesa receipt format", "error")
+                return redirect(url_for('admin_manual_activation'))
+            
+            print(f"🔧 Admin manual activation attempt: {email}, {index_number}, {mpesa_receipt}")
+            print(f"🔧 Database connected: {database_connected}")
+            print(f"🔧 Admin activations collection: {admin_activations_collection is not None}")
+            
+            # Create manual activation record
+            activation_record = {
+                'email': email,
+                'index_number': index_number,
+                'mpesa_receipt': mpesa_receipt,
+                'activation_type': activation_type,
+                'activated_by': session.get('admin_username', 'admin'),
+                'activated_at': datetime.now(),
+                'is_active': True,
+                'status': 'active',
+                'used_for_flow': None,
+                'used_at': None
+            }
+            
+            # Save to database
+            if database_connected and admin_activations_collection is not None:
+                try:
+                    # Check if already activated (active or expired)
+                    existing_activation = admin_activations_collection.find_one({
+                        'index_number': index_number
+                    })
+                    
+                    if existing_activation:
+                        if existing_activation.get('is_active'):
+                            flash(f"User {index_number} already has an active manual activation", "warning")
+                            print(f"⚠️ User {index_number} already has active activation")
+                        else:
+                            # Update existing expired activation to active
+                            result = admin_activations_collection.update_one(
+                                {'index_number': index_number},
+                                {'$set': {
+                                    'is_active': True,
+                                    'status': 'active',
+                                    'activated_at': datetime.now(),
+                                    'activated_by': session.get('admin_username', 'admin'),
+                                    'used_for_flow': None,
+                                    'used_at': None,
+                                    'mpesa_receipt': mpesa_receipt,
+                                    'email': email,
+                                    'activation_type': activation_type
+                                }}
+                            )
+                            if result.modified_count > 0:
+                                flash(f"Reactivated manual activation for {email}", "success")
+                                print(f"✅ Manual activation reactivated: {index_number}")
+                                
+                                # Update statistics after reactivation
+                                stats['active_count'] += 1
+                                stats['used_count'] -= 1
+                            else:
+                                flash("Failed to reactivate manual activation", "error")
+                    else:
+                        result = admin_activations_collection.insert_one(activation_record)
+                        if result.inserted_id:
+                            flash(f"Manual activation successful for {email}", "success")
+                            print(f"✅ Manual activation saved to database: {result.inserted_id}")
+                            
+                            # Update statistics after new activation
+                            stats['active_count'] += 1
+                            stats['total_count'] += 1
+                            stats['today_count'] += 1
+                            
+                            # Verify the record was saved
+                            saved_record = admin_activations_collection.find_one({'_id': result.inserted_id})
+                            if saved_record:
+                                print(f"✅ Record verified in database: {saved_record}")
+                            else:
+                                print(f"❌ Record not found after insertion")
+                        else:
+                            flash("Failed to save manual activation", "error")
+                        
+                except Exception as e:
+                    print(f"❌ Error saving manual activation to database: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    flash("Error saving activation record to database", "error")
+            else:
+                # Session fallback for manual activations
+                session_key = f'manual_activation_{index_number}'
+                session[session_key] = activation_record
+                flash(f"Manual activation saved to session for {email} (database not available)", "success")
+                print(f"✅ Manual activation saved to session: {session_key}")
+            
+            return redirect(url_for('admin_manual_activation'))
+            
+        except Exception as e:
+            print(f"❌ Error in manual activation: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            flash("An error occurred during activation", "error")
+            return redirect(url_for('admin_manual_activation'))
+    
+    return render_template('admin_manual_activation.html', 
+                         active_count=stats['active_count'],
+                         used_count=stats['used_count'],
+                         total_count=stats['total_count'],
+                         today_count=stats['today_count'])
+
+@app.route('/debug/admin-activations')
+def debug_admin_activations():
+    """Debug route to check admin activations"""
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Not authorized'}), 403
+    
+    debug_info = {
+        'database_connected': database_connected,
+        'admin_activations_collection_exists': admin_activations_collection is not None,
+        'total_activations': 0,
+        'activations': []
+    }
+    
+    if database_connected and admin_activations_collection is not None:
+        try:
+            activations = list(admin_activations_collection.find().sort('activated_at', -1).limit(10))
+            debug_info['total_activations'] = admin_activations_collection.count_documents({})
+            debug_info['activations'] = activations
+        except Exception as e:
+            debug_info['error'] = str(e)
+    
+    return jsonify(debug_info)
+
+@app.route('/admin/payments')
+def admin_payments():
+    """View all payments and statistics"""
+    if not session.get('admin_logged_in'):
+        flash("Please login as administrator", "error")
+        return redirect(url_for('admin_login'))
+    
+    try:
+        payments_data = []
+        statistics = {
+            'total_payments': 0,
+            'total_amount': 0,
+            'first_category_count': 0,
+            'additional_category_count': 0,
+            'failed_payments': 0,
+            'confirmed_payments': 0,
+            'manual_activations': 0
+        }
+        
+        if database_connected:
+            # Get all payments
+            all_payments = list(user_payments_collection.find().sort('created_at', -1))
+            
+            for payment in all_payments:
+                payment_data = {
+                    'email': payment.get('email', 'N/A'),
+                    'index_number': payment.get('index_number', 'N/A'),
+                    'level': payment.get('level', 'N/A'),
+                    'payment_amount': payment.get('payment_amount', 0),
+                    'payment_confirmed': payment.get('payment_confirmed', False),
+                    'mpesa_receipt': payment.get('mpesa_receipt', 'N/A'),
+                    'transaction_ref': payment.get('transaction_ref', 'N/A'),
+                    'created_at': payment.get('created_at', 'N/A'),
+                    'payment_date': payment.get('payment_date', 'N/A')
+                }
+                payments_data.append(payment_data)
+                
+                # Calculate statistics
+                statistics['total_payments'] += 1
+                statistics['total_amount'] += payment_data['payment_amount']
+                
+                if payment_data['payment_confirmed']:
+                    statistics['confirmed_payments'] += 1
+                    # Determine if first or additional category
+                    if payment_data['payment_amount'] == 2:
+                        statistics['first_category_count'] += 1
+                    else:
+                        statistics['additional_category_count'] += 1
+                else:
+                    statistics['failed_payments'] += 1
+            
+            # Get manual activations count
+            statistics['manual_activations'] = admin_activations_collection.count_documents({'is_active': True})
+                
+        else:
+            # Session fallback for statistics
+            payments_data = []
+        
+        return render_template('admin_payments.html', 
+                             payments=payments_data, 
+                             statistics=statistics)
+                             
+    except Exception as e:
+        print(f"❌ Error loading admin payments: {str(e)}")
+        flash("Error loading payment data", "error")
+        return render_template('admin_payments.html', payments=[], statistics={})
+
+@app.route('/admin/users')
+def admin_users():
+    """View all users and their activities"""
+    if not session.get('admin_logged_in'):
+        flash("Please login as administrator", "error")
+        return redirect(url_for('admin_login'))
+    
+    try:
+        users_data = []
+        
+        if database_connected:
+            # Get all unique users with their activities
+            pipeline = [
+                {
+                    '$group': {
+                        '_id': '$index_number',
+                        'email': {'$first': '$email'},
+                        'payment_count': {'$sum': 1},
+                        'confirmed_payments': {
+                            '$sum': {'$cond': [{'$eq': ['$payment_confirmed', True]}, 1, 0]}
+                        },
+                        'total_amount': {'$sum': '$payment_amount'},
+                        'last_activity': {'$max': '$created_at'},
+                        'levels': {'$addToSet': '$level'}
+                    }
+                },
+                {'$sort': {'last_activity': -1}}
+            ]
+            
+            user_activities = list(user_payments_collection.aggregate(pipeline))
+            
+            for user in user_activities:
+                user_data = {
+                    'index_number': user['_id'],
+                    'email': user.get('email', 'N/A'),
+                    'payment_count': user.get('payment_count', 0),
+                    'confirmed_payments': user.get('confirmed_payments', 0),
+                    'total_amount': user.get('total_amount', 0),
+                    'last_activity': user.get('last_activity', 'N/A'),
+                    'levels': user.get('levels', [])
+                }
+                users_data.append(user_data)
+        
+        return render_template('admin_users.html', users=users_data)
+        
+    except Exception as e:
+        print(f"❌ Error loading admin users: {str(e)}")
+        flash("Error loading user data", "error")
+        return render_template('admin_users.html', users=[])
+
+@app.route('/admin/system-health')
+def admin_system_health():
+    """System health and monitoring dashboard"""
+    if not session.get('admin_logged_in'):
+        flash("Please login as administrator", "error")
+        return redirect(url_for('admin_login'))
+    
+    try:
+        health_data = {
+            'database_connected': database_connected,
+            'session_keys_count': len(session.keys()) if session else 0,
+            'current_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'application_uptime': 'N/A'
+        }
+        
+        if database_connected:
+            # Database statistics
+            health_data['database_stats'] = {
+                'user_payments': user_payments_collection.count_documents({}),
+                'user_courses': user_courses_collection.count_documents({}),
+                'user_baskets': user_baskets_collection.count_documents({}),
+                'admin_activations': admin_activations_collection.count_documents({})
+            }
+            
+            # Recent activities
+            health_data['recent_activities'] = list(user_payments_collection.find()
+                                                  .sort('created_at', -1)
+                                                  .limit(10))
+        
+        return render_template('admin_system_health.html', health_data=health_data)
+        
+    except Exception as e:
+        print(f"❌ Error loading system health: {str(e)}")
+        flash("Error loading system health data", "error")
+        return render_template('admin_system_health.html', health_data={})
+
 # --- Debug and Testing Routes ---
 @app.route('/debug/database')
 def debug_database():
@@ -2569,7 +3580,8 @@ def debug_database():
         'collections_initialized': {
             'user_payments': user_payments_collection is not None,
             'user_courses': user_courses_collection is not None,
-            'user_baskets': user_baskets_collection is not None
+            'user_baskets': user_baskets_collection is not None,
+            'admin_activations': admin_activations_collection is not None
         },
         'session_keys': list(session.keys()) if session else []
     }
@@ -2579,7 +3591,8 @@ def debug_database():
             status['document_counts'] = {
                 'user_payments': user_payments_collection.count_documents({}),
                 'user_courses': user_courses_collection.count_documents({}),
-                'user_baskets': user_baskets_collection.count_documents({})
+                'user_baskets': user_baskets_collection.count_documents({}),
+                'admin_activations': admin_activations_collection.count_documents({})
             }
         except Exception as e:
             status['error'] = str(e)
@@ -2605,6 +3618,7 @@ def debug_basket_status():
         status['database_basket_count'] = len(db_basket)
     
     return jsonify(status)
+
 @app.route('/contact')
 def contact():
     return render_template("contact.html")
