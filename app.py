@@ -3636,9 +3636,158 @@ def temp_bypass(flow):
     
     flash("Temporarily bypassed payment for testing", "info")
     return redirect(url_for('show_results', flow=flow))
+@app.route('/health')
+def health_check():
+    """Health check endpoint for keep-alive pings and monitoring"""
+    health_status = {
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'service': 'KUCCPS Courses API',
+        'version': '1.0',
+        'database_connected': database_connected,
+        'endpoints_working': True
+    }
+    
+    # Add database health check if connected
+    if database_connected:
+        try:
+            # Simple database check
+            user_payments_collection.find_one() if user_payments_collection else None
+            health_status['database_status'] = 'connected'
+        except Exception as e:
+            health_status['database_status'] = 'error'
+            health_status['database_error'] = str(e)
+    
+    return jsonify(health_status)
+
+@app.route('/ping')
+def ping():
+    """Simple ping endpoint for keep-alive service"""
+    return jsonify({
+        'status': 'pong', 
+        'timestamp': datetime.now().isoformat(),
+        'service': 'KUCCPS Courses API'
+    })
+
+@app.route('/keep-alive-status')
+def keep_alive_status():
+    """Check keep-alive service status"""
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    status = {
+        'keep_alive_running': keep_alive_service.is_running if 'keep_alive_service' in globals() else False,
+        'thread_alive': keep_alive_service.thread.is_alive() if 'keep_alive_service' in globals() and keep_alive_service.thread else False,
+        'urls_count': len(keep_alive_service.app_urls) if 'keep_alive_service' in globals() else 0,
+        'ping_interval': keep_alive_service.ping_interval if 'keep_alive_service' in globals() else 0
+    }
+    return jsonify(status)
+
+import threading
+import time
+import requests
+from datetime import datetime
+
+
+class KeepAliveService:
+    def __init__(self, app_urls=None, ping_interval=10):
+        """
+        Initialize keep-alive service
+        
+        Args:
+            app_urls: List of URLs to ping (can include multiple routes)
+            ping_interval: Minutes between pings (default: 10 minutes)
+        """
+        self.app_urls = app_urls or ["https://kuccps-courses.onrender.com"]
+        self.ping_interval = ping_interval
+        self.is_running = False
+        self.thread = None
+        
+    def ping_url(self, url):
+        """Ping a specific URL"""
+        try:
+            start_time = time.time()
+            response = requests.get(url, timeout=15)
+            response_time = round((time.time() - start_time) * 1000, 2)
+            
+            if response.status_code == 200:
+                print(f"✅ Ping successful: {url} - {response.status_code} - {response_time}ms")
+                return True
+            else:
+                print(f"⚠️  Ping warning: {url} - {response.status_code} - {response_time}ms")
+                return False
+                
+        except requests.exceptions.Timeout:
+            print(f"❌ Ping timeout: {url} - Request timed out")
+            return False
+        except requests.exceptions.ConnectionError:
+            print(f"❌ Ping connection error: {url} - Connection failed")
+            return False
+        except Exception as e:
+            print(f"❌ Ping error: {url} - {str(e)}")
+            return False
+    
+    def ping_all_urls(self):
+        """Ping all configured URLs"""
+        print(f"🔄 Keep-alive cycle started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        success_count = 0
+        for url in self.app_urls:
+            if self.ping_url(url):
+                success_count += 1
+        
+        print(f"📊 Keep-alive summary: {success_count}/{len(self.app_urls)} URLs pinged successfully")
+        return success_count
+    
+    def run_service(self):
+        """Main service loop"""
+        self.is_running = True
+        print(f"🚀 Keep-alive service started with {len(self.app_urls)} URLs")
+        
+        while self.is_running:
+            try:
+                self.ping_all_urls()
+                
+                # Wait for the specified interval
+                for _ in range(self.ping_interval * 60):
+                    if not self.is_running:
+                        break
+                    time.sleep(1)
+                    
+            except Exception as e:
+                print(f"❌ Keep-alive service error: {str(e)}")
+                time.sleep(60)  # Wait 1 minute before retrying
+    
+    def start(self):
+        """Start the keep-alive service in a background thread"""
+        if self.thread and self.thread.is_alive():
+            print("⚠️  Keep-alive service already running")
+            return
+            
+        self.thread = threading.Thread(target=self.run_service, daemon=True)
+        self.thread.start()
+        print("✅ Keep-alive service started successfully")
+    
+    def stop(self):
+        """Stop the keep-alive service"""
+        self.is_running = False
+        print("🛑 Keep-alive service stopped")
+
+# Initialize and start the keep-alive service
+keep_alive_service = KeepAliveService(
+    app_urls=[
+        "https://kuccps-courses.onrender.com",
+        "https://kuccps-courses.onrender.com/",  # Root
+        "https://kuccps-courses.onrender.com/degree",  # Important routes
+        "https://kuccps-courses.onrender.com/diploma",
+    ],
+    ping_interval=10  # Ping every 10 minutes
+)
 
 # --- Main Application Entry Point ---
 if __name__ == "__main__":
     print("🚀 Starting KUCCPS Application...")
     print(f"📊 Database Connection Status: {'✅ Connected' if database_connected else '❌ Disconnected'}")
+     # Start the keep-alive service
+    keep_alive_service.start()
     app.run(host='0.0.0.0', port=8080, debug=False)
