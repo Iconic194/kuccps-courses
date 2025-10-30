@@ -255,65 +255,10 @@
     </div>
     {% endif %}
 
-    <!-- User's Academic Profile -->
-    <div class="card mt-4">
-        <div class="card-header bg-info text-white">
-            <h2 class="h5 mb-0">
-                <i class="fas fa-user-graduate me-2"></i>Your Academic Profile
-            </h2>
-        </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-{% if flow == 'degree' %}6{% else %}8{% endif %}">
-                    <h3 class="h6">
-                        <i class="fas fa-book me-2"></i>Subject Grades:
-                    </h3>
-                    <div class="d-flex flex-wrap gap-2">
-                        {% for code, grade in user_grades.items() %}
-                        <span class="badge bg-primary">
-                            <i class="fas fa-pencil-alt me-1"></i>{{ code }}: {{ grade }}
-                        </span>
-                        {% else %}
-                        <span class="text-muted">
-                            <i class="fas fa-times-circle me-1"></i>No grades entered
-                        </span>
-                        {% endfor %}
-                    </div>
-                </div>
-
-                {% if flow == 'degree' %}
-                <div class="col-md-6">
-                    <h3 class="h6">
-                        <i class="fas fa-chart-bar me-2"></i>Cluster Points:
-                    </h3>
-                    <div class="d-flex flex-wrap gap-1">
-                        {% for cluster, points in user_cluster_points.items() %}
-                        {% if points > 0 %}
-                        <span class="badge bg-success">
-                            <i class="fas fa-chart-line me-1"></i>{{ cluster|replace('_', ' ') }}: {{ points }}
-                        </span>
-                        {% endif %}
-                        {% else %}
-                        <span class="text-muted">
-                            <i class="fas fa-times-circle me-1"></i>No cluster points entered
-                        </span>
-                        {% endfor %}
-                    </div>
-                </div>
-                {% else %}
-                <div class="col-md-4">
-                    <h3 class="h6">
-                        <i class="fas fa-trophy me-2"></i>Overall Mean Grade:
-                    </h3>
-                    <div class="alert alert-success mb-0 py-2">
-                        <i class="fas fa-award me-2"></i>
-                        <strong class="h5">{{ user_mean_grade or 'Not specified' }}</strong>
-                    </div>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
+    <!-- Floating Back to Top Button -->
+    <button id="floatingBackToTop" class="btn btn-primary floating-back-to-top" title="Back to Top">
+        <i class="fas fa-arrow-up"></i>
+    </button>
 
     <!-- Action Buttons -->
     <div class="mt-4 d-flex gap-2 flex-wrap">
@@ -338,6 +283,36 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        // Floating Back to Top Button functionality
+        const floatingBackToTop = document.getElementById('floatingBackToTop');
+
+        // Show/hide floating button based on scroll position
+        function toggleFloatingButton() {
+            if (window.pageYOffset > 300) {
+                floatingBackToTop.style.display = 'flex';
+            } else {
+                floatingBackToTop.style.display = 'none';
+            }
+        }
+
+        // Scroll to top function
+        function scrollToTop() {
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        }
+
+        // Event listeners for floating button
+        if (floatingBackToTop) {
+            floatingBackToTop.addEventListener('click', scrollToTop);
+            window.addEventListener('scroll', toggleFloatingButton);
+
+            // Initialize button state
+            toggleFloatingButton();
+        }
+
+        // Rest of your existing JavaScript code...
         // Load basket from database/session on page load
         loadBasketOnPageLoad();
 
@@ -888,6 +863,46 @@
 </script>
 
 <style>
+    /* Floating Back to Top Button Styles */
+    .floating-back-to-top {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.2rem;
+        box-shadow: 0 4px 15px rgba(0, 123, 255, 0.3);
+        z-index: 1000;
+        transition: all 0.3s ease;
+        border: none;
+    }
+
+    .floating-back-to-top:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 20px rgba(0, 123, 255, 0.4);
+        background-color: #0b5ed7;
+    }
+
+    .floating-back-to-top:active {
+        transform: translateY(-1px);
+    }
+
+    /* Responsive adjustments for floating button */
+    @media (max-width: 768px) {
+        .floating-back-to-top {
+            bottom: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            font-size: 1rem;
+        }
+    }
+
+    /* Rest of your existing CSS styles... */
     .collection-btn {
         transition: all 0.3s ease;
         border-radius: 8px;
@@ -1074,7 +1089,8 @@
         .btn,
         .input-group,
         .alert-info,
-        .collection-btn {
+        .collection-btn,
+        .floating-back-to-top {
             display: none !important;
         }
 
