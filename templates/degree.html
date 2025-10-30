@@ -1,17 +1,18 @@
-{% extends "./base.html" %} {% block title %} Kuccps | Hean {% endblock %} {%
-block links %}
-
+{% extends "./base.html" %}
+{% block title %} Kuccps | Hean {% endblock %}
+{% block links %}
 <link rel="stylesheet" href="{{ url_for('static', filename='styles-01.css') }}" />
-{% endblock %} {% block displaytext %}Fill in your grades then submit{% endblock
-%} {% block content %}
+{% endblock %}
 
+{% block displaytext %}Fill in your grades then submit{% endblock %}
+
+{% block content %}
 <div class="container mt-5">
     <!-- As a heading -->
+    <span>Fill in the details and submit to get the programmes you qualify!</span>
 
-    <span>Fill in the details and submit to get the programmes you qualify!
-    </span>
     <form action="/submit-grades" method="post">
-    <!-- KCSE Subjects Grades (Email and Index will be collected after grades submission) -->
+        <!-- KCSE Subjects Grades (Email and Index will be collected after grades submission) -->
         <div id="gradesForm">
             <h1 class="text-primary">Enter KCSE Grades</h1>
             <div class="subjects">
@@ -469,8 +470,30 @@ block links %}
                 </div>
             </div>
         </div>
+
+        <!-- Video Tutorial Section -->
+        <div class="video-tutorial-section mt-5 mb-5">
+            <h1 class="text-primary">How to View Your Cluster Points</h1>
+            <div class="video-container">
+                <video controls class="w-100">
+                    <source src="{{ url_for('static', filename='videos/cluster-points.mp4') }}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+            <div class="instructions mt-3">
+                <p class="lead">
+                    You'll see something written "Degree Cluster Weights" - those are your cluster points ranging from
+                    Cluster 1-20.
+                </p>
+                <p class="mb-0">
+                    <strong>If using a mobile phone:</strong> Swipe to the left or use auto-rotate to view all cluster
+                    points clearly.
+                </p>
+            </div>
+        </div>
+
         <!-- Cluster Cutoff Points -->
-        <div id="gradesForm" action="#" method="post">
+        <div id="clusterPointsForm">
             <h1 class="text-primary">Enter Your Cluster Cut-off-points</h1>
             <div class="subjects">
                 <div class="mb-3">
@@ -580,4 +603,6 @@ block links %}
         </button>
     </form>
 </div>
-{% endblock %} {% block scripts %}{% endblock %}
+{% endblock %}
+
+{% block scripts %}{% endblock %}
