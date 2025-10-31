@@ -129,7 +129,7 @@ def initialize_database():
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            print(f"🔄 Attempting to connect to MongoDB (attempt {attempt + 1}/{max_retries})...")
+            print(f"🔄 Attempting to connect to\\ MongoDB (attempt {attempt + 1}/{max_retries})...")
             
             client = MongoClient(
                 MONGODB_URI,
@@ -765,93 +765,39 @@ def save_user_payment(email, index_number, level, transaction_ref=None, amount=1
         session_key = f'{level}_payment_{index_number}'
         session[session_key] = payment_record
 
-def save_user_courses(email, index_number, level, courses):
-    """Save user course results to courses collection with better error handling"""
-    print(f"💾 Saving {len(courses)} courses for {email}, {index_number}, {level}")
-    
-    if not courses:
-        print("⚠️ No courses to save!")
-        return False
-        
-    # Validate courses data
-    valid_courses = []
-    for course in courses:
-        if isinstance(course, dict) and (course.get('programme_name') or course.get('course_name')):
-            # Ensure each course has required fields
-            course_copy = course.copy()
-            if '_id' in course_copy and isinstance(course_copy['_id'], ObjectId):
-                course_copy['_id'] = str(course_copy['_id'])
-            valid_courses.append(course_copy)
-        else:
-            print(f"⚠️ Skipping invalid course: {course}")
-    
-    if not valid_courses:
-        print("❌ No valid courses to save after validation")
-        return False
-        
-    print(f"✅ Validated {len(valid_courses)} courses for saving")
-    
-    if not database_connected:
-        session_key = f'{level}_courses_{index_number}'
-        session[session_key] = {
-            'email': email,
-            'index_number': index_number,
-            'level': level,
-            'courses': valid_courses,
-            'created_at': datetime.now().isoformat(),
-            'courses_count': len(valid_courses)
-        }
-        print(f"✅ Courses saved to session: {len(valid_courses)} courses")
-        return True
-        
-    courses_record = {
-        'email': email,
-        'index_number': index_number,
-        'level': level,
-        'courses': valid_courses,
-        'courses_count': len(valid_courses),
-        'created_at': datetime.now(),
-        'updated_at': datetime.now()
-    }
-    
+ 
+
+
+@app.route('/debug/user-courses')
+def debug_user_courses():
+    """Debug endpoint to inspect stored courses for a user (email, index_number, level required as query args).
+    Returns DB record and session record for comparison."""
+    email = request.args.get('email')
+    index_number = request.args.get('index_number')
+    level = request.args.get('level')
+    if not (email and index_number and level):
+        return jsonify({'success': False, 'error': 'email, index_number and level query parameters are required'}), 400
+
+    db_rec = None
+    sess_rec = None
     try:
-        # Use update_one with upsert to prevent duplicates
-        result = user_courses_collection.update_one(
-            {
-                'email': email, 
-                'index_number': index_number, 
-                'level': level
-            },
-            {'$set': courses_record},
-            upsert=True
-        )
-        
-        if result.upserted_id:
-            print(f"✅ New courses record created with {len(valid_courses)} courses")
-        else:
-            print(f"✅ Courses record updated with {len(valid_courses)} courses")
-            
-        # Verify the save worked
-        saved_record = user_courses_collection.find_one({
-            'email': email, 
-            'index_number': index_number, 
-            'level': level
-        })
-        
-        if saved_record and 'courses' in saved_record:
-            actual_count = len(saved_record['courses'])
-            print(f"✅ Verified: {actual_count} courses in database")
-            if actual_count != len(valid_courses):
-                print(f"⚠️ Course count mismatch: expected {len(valid_courses)}, got {actual_count}")
-            
-        return True
-            
+        if database_connected and user_courses_collection is not None:
+            db_rec = user_courses_collection.find_one({'email': email, 'index_number': index_number, 'level': level})
+            if db_rec and 'courses' in db_rec:
+                # convert ObjectId to str for JSON
+                for c in db_rec['courses']:
+                    if '_id' in c and isinstance(c['_id'], ObjectId):
+                        c['_id'] = str(c['_id'])
     except Exception as e:
-        print(f"❌ Error saving user courses: {str(e)}")
-        # Fallback to session
+        print(f"❌ Debug: error reading DB record: {e}")
+
+    try:
         session_key = f'{level}_courses_{index_number}'
-        session[session_key] = courses_record
-        return False
+        sess_rec = session.get(session_key)
+    except Exception:
+        sess_rec = None
+
+    return jsonify({'success': True, 'db_record': db_rec, 'session_record': sess_rec})
 
 @app.before_request
 def manage_session():

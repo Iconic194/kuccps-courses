@@ -6,6 +6,9 @@ from bson import ObjectId
 import os
 from dotenv import load_dotenv
 import logging
+import os
+import json
+import traceback
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -86,6 +89,12 @@ def verify_courses_consistency(email, index_number, level):
             if session_count != db_count:
                 logger.warning(f"⚠️ Course count mismatch - Session: {session_count}, DB: {db_count}")
                 # Force session update from database
+                # NOTE: Overwriting the per-level session key here to restore DB state into session.
+                # This intentionally writes the '{level}_courses_{index_number}' key used across
+                # the app. Be aware that session values can later be read and used as inputs to
+                # regenerate courses; if session-derived values are incomplete, that may cause
+                # smaller course lists to be computed and (if saved) overwrite DB records.
+                # We update session here deliberately to keep UI in sync with DB.
                 session[session_key] = {
                     'courses': db_courses,
                     'courses_count': db_count,
@@ -153,23 +162,52 @@ def get_user_courses(email, index_number, level, force_refresh=False):
                 
                 if len(valid_courses) != original_count:
                     logger.warning(f"⚠️ Course count mismatch: {original_count} -> {len(valid_courses)}")
-                    # Update database with valid courses
-                    user_courses_collection.update_one(
-                        {
-                            'email': email,
-                            'index_number': index_number,
-                            'level': level
-                        },
-                        {
-                            '$set': {
-                                'courses': valid_courses,
-                                'courses_count': len(valid_courses),
-                                'last_validated': datetime.now()
-                            }
-                        }
-                    )
+                    # IMPORTANT: Do NOT automatically overwrite the DB when validation reduces
+                    # the number of courses. Overwriting with a smaller set can cause data loss
+                    # (we observed full lists being replaced with just a few items). Instead,
+                    # write a backup for manual inspection and mark the record as needing review.
+                    try:
+                        # Ensure backups dir exists
+                        backups_dir = os.path.join(os.path.dirname(__file__), 'backups')
+                        os.makedirs(backups_dir, exist_ok=True)
+                        backup_path = os.path.join(
+                            backups_dir,
+                            f'user_courses_validation_{index_number.replace("/","_")}_{int(datetime.now().timestamp())}.json'
+                        )
+                        with open(backup_path, 'w', encoding='utf-8') as f:
+                            json.dump({
+                                'email': email,
+                                'index_number': index_number,
+                                'level': level,
+                                'original_count': original_count,
+                                'validated_count': len(valid_courses),
+                                'validated_sample': valid_courses[:20]
+                            }, f, default=str, indent=2)
+                        logger.warning(f"🔖 Wrote validation backup to {backup_path}")
+                    except Exception as be:
+                        logger.error(f"❌ Failed to write validation backup: {be}", exc_info=True)
+
+                    # Log a short stack trace to help identify the caller
+                    try:
+                        stack = ''.join(traceback.format_stack(limit=6))
+                        logger.warning(f"🔎 Validation mismatch stack (recent frames):\n{stack}")
+                    except Exception:
+                        pass
+
+                    # Optionally mark the record with last_validated timestamp without changing courses
+                    try:
+                        user_courses_collection.update_one(
+                            {'email': email, 'index_number': index_number, 'level': level},
+                            {'$set': {'last_validated': datetime.now(), 'needs_review': True}}
+                        )
+                        logger.info("✅ Marked DB record with last_validated and needs_review flag")
+                    except Exception as me:
+                        logger.error(f"❌ Failed to mark DB record for review: {me}", exc_info=True)
                 
                 # Only update session with verified database data
+                # NOTE: Writing verified DB courses into session cache.
+                # This writes the '{level}_courses_{index_number}' session key.
+                # This is safe because data here is validated/verified from DB.
                 session[session_key] = {
                     'courses': valid_courses,
                     'courses_count': len(valid_courses),
@@ -255,6 +293,13 @@ def save_user_courses(email, index_number, level, courses, update_session=True):
             }
             
             # Use update_one with upsert to prevent duplicates
+            # Instrumentation: log caller and sizes before updating DB
+            try:
+                stack = ''.join(traceback.format_stack(limit=6))
+            except Exception:
+                stack = ''
+            logger.info(f"🛠️ About to update DB for {email}/{index_number}/{level}: saving {len(valid_courses)} courses. Caller stack (trimmed):\n{stack}")
+
             result = user_courses_collection.update_one(
                 {
                     'email': email,
@@ -296,6 +341,9 @@ def save_user_courses(email, index_number, level, courses, update_session=True):
             
             # Only fallback to session if database save completely fails
             if update_session:
+                # NOTE: Error fallback - saving validated courses to session when DB save fails.
+                # This is a last-resort cache; prefer to surface/handle DB errors instead of
+                # relying on session persistence.
                 session[f'{level}_courses_{index_number}'] = {
                     'courses': valid_courses,
                     'courses_count': len(valid_courses),
@@ -307,6 +355,9 @@ def save_user_courses(email, index_number, level, courses, update_session=True):
     
     # If no database connection, save to session as last resort
     if update_session:
+        # NOTE: No-database case: persist courses to session as a last-resort cache.
+        # This writes the '{level}_courses_{index_number}' key. Keep this transient
+        # and prefer DB writes when connectivity is restored.
         session[f'{level}_courses_{index_number}'] = {
             'courses': valid_courses,
             'courses_count': len(valid_courses),
