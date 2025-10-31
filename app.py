@@ -465,9 +465,17 @@ def init_session():
 def clear_session_data(partial=False):
     """Clear session data with option to preserve critical fields"""
     critical_fields = {
+        # User identification fields
         'email', 'index_number', 'verified_payment', 
         'verified_index', 'verified_receipt', 
-        'current_flow', 'current_level'
+        'current_flow', 'current_level',
+        
+        # Grade and cluster data fields
+        'degree_grades', 'degree_cluster_points', 'degree_data_submitted',
+        'diploma_grades', 'diploma_mean_grade', 'diploma_data_submitted',
+        'certificate_grades', 'certificate_mean_grade', 'certificate_data_submitted',
+        'artisan_grades', 'artisan_mean_grade', 'artisan_data_submitted',
+        'kmtc_grades', 'kmtc_mean_grade', 'kmtc_data_submitted'
     }
     
     if partial:
@@ -824,11 +832,17 @@ def manage_session():
         current_level = session.get('current_level')
         
         if email and index_number and current_level:
-            # Force refresh courses from database
+            # Only clear session course data if it exists in database
             if database_connected:
-                # Clear session course data to force database fetch
-                session_key = f'{current_level}_courses_{index_number}'
-                session.pop(session_key, None)
+                courses_data = get_user_courses_data(email, index_number, current_level)
+                if courses_data and courses_data.get('courses'):
+                    # Clear session course data to get fresh data from DB
+                    session_key = f'{current_level}_courses_{index_number}'
+                    session.pop(session_key, None)
+                    print(f"🔄 Refreshing courses from database for {current_level}")
+                else:
+                    # Keep session data since no DB data exists
+                    print(f"ℹ️ Keeping session courses for {current_level} - not in database")
     
     # Protect critical session data
     protected_keys = [
@@ -1066,6 +1080,13 @@ def process_courses_after_payment(email, index_number, flow):
         if flow == 'degree':
             user_grades = session.get('degree_grades', {})
             user_cluster_points = session.get('degree_cluster_points', {})
+            
+            # 🔥 VALIDATION: Ensure we have required grade data
+            if not user_grades or not user_cluster_points:
+                print(f"⚠️ Missing required grade data for degree - Grades: {bool(user_grades)}, Points: {bool(user_cluster_points)}")
+                return False
+                
+            print(f"📊 Processing degree with {len(user_grades)} grades and {len(user_cluster_points)} cluster points")
             qualifying_courses = get_qualifying_courses(user_grades, user_cluster_points)
             
         elif flow == 'diploma':
